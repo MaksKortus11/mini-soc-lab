@@ -1,12 +1,10 @@
-
 import argparse
 import csv
-import json
 import hashlib
+import json
 from collections import defaultdict, deque
 from datetime import timedelta
 from pathlib import Path
-
 
 OKNO_MINUTY = 5
 PROG_NIEUDANYCH_LOGOWAN = 5
@@ -50,26 +48,15 @@ MITRE_ATTACK = {
 
 
 def wczytaj_logi(sciezka=PLIK_LOGOW):
-    """Wczytuje, sprawdza i sortuje zdarzenia logowania."""
-
     if not sciezka.exists():
-        raise FileNotFoundError(
-            f"Nie znaleziono pliku z logami: {sciezka}"
-        )
+        raise FileNotFoundError(f"Nie znaleziono pliku z logami: {sciezka}")
 
-    with sciezka.open(
-        "r",
-        encoding="utf-8-sig",
-        newline="",
-    ) as plik:
+    with sciezka.open("r", encoding="utf-8-sig", newline="") as plik:
         probka = plik.read(4096)
         plik.seek(0)
 
         try:
-            format_csv = csv.Sniffer().sniff(
-                probka,
-                delimiters=",;",
-            )
+            format_csv = csv.Sniffer().sniff(probka, delimiters=",;")
         except csv.Error:
             format_csv = csv.excel
 
@@ -84,14 +71,12 @@ def wczytaj_logi(sciezka=PLIK_LOGOW):
         ]
 
         brakujace = WYMAGANE_KOLUMNY - set(czytnik.fieldnames)
-
         if brakujace:
             raise ValueError(
                 f"Brak wymaganych kolumn w CSV: {sorted(brakujace)}"
             )
 
         logi = []
-
         for numer_linii, wiersz in enumerate(czytnik, start=2):
             if not wiersz or all(
                 wartosc is None or not wartosc.strip()
@@ -119,8 +104,7 @@ def wczytaj_logi(sciezka=PLIK_LOGOW):
 
             if zdarzenie not in ZDARZENIA:
                 raise ValueError(
-                    f"Nieznany rodzaj zdarzenia w linii "
-                    f"{numer_linii}: {zdarzenie}"
+                    f"Nieznany rodzaj zdarzenia w linii {numer_linii}: {zdarzenie}"
                 )
 
             logi.append({
@@ -135,18 +119,13 @@ def wczytaj_logi(sciezka=PLIK_LOGOW):
 
 
 def analizuj_logi(logi):
-    """Wykrywa brute-force, password spraying i rozproszony brute-force."""
-
     okno = timedelta(minutes=OKNO_MINUTY)
-
     nieudane_logowania = defaultdict(deque)
     nieudane_na_ip = defaultdict(deque)
     nieudane_na_uzytkownika = defaultdict(deque)
-
     podejrzane_serie = []
     podejrzane_spraying = []
     rozproszone_alerty = []
-
     ostatni_alert_spraying = {}
 
     for wpis in sorted(logi, key=lambda element: element["czas"]):
@@ -154,21 +133,16 @@ def analizuj_logi(logi):
         adres_ip = wpis["adres_ip"]
         uzytkownik = wpis["uzytkownik"]
         zdarzenie = wpis["zdarzenie"]
-
         granica_czasu = czas - okno
         klucz = (adres_ip, uzytkownik)
-
         proby = nieudane_logowania[klucz]
         proby_ip = nieudane_na_ip[adres_ip]
         proby_uzytkownika = nieudane_na_uzytkownika[uzytkownik]
 
-        # Usuwanie prób spoza ruchomego okna czasowego.
         while proby and proby[0]["czas"] < granica_czasu:
             proby.popleft()
-
         while proby_ip and proby_ip[0]["czas"] < granica_czasu:
             proby_ip.popleft()
-
         while (
             proby_uzytkownika
             and proby_uzytkownika[0]["czas"] < granica_czasu
@@ -181,32 +155,42 @@ def analizuj_logi(logi):
                 "adres_ip": adres_ip,
                 "uzytkownik": uzytkownik,
             }
-
             proby.append(nowa_proba)
             proby_ip.append(nowa_proba)
             proby_uzytkownika.append(nowa_proba)
 
-            # Reguła 1: brute-force na jedno konto z jednego IP.
-            if len(proby) == PROG_NIEUDANYCH_LOGOWAN:
-                podejrzane_serie.append({
-                    "adres_ip": adres_ip,
-                    "uzytkownik": uzytkownik,
-                    "pierwsza_proba": proby[0]["czas"],
-                    "ostatnia_proba": czas,
-                    "liczba_prob": len(proby),
-                    "logowanie_udane_po_serii": False,
-                    "czas_udanego_logowania": None,
-                })
+            if len(proby) >= PROG_NIEUDANYCH_LOGOWAN:
+                istniejąca_seria = next(
+                    (
+                        seria
+                        for seria in reversed(podejrzane_serie)
+                        if seria["adres_ip"] == adres_ip
+                        and seria["uzytkownik"] == uzytkownik
+                        and not seria["logowanie_udane_po_serii"]
+                        and czas >= seria["ostatnia_proba"]
+                        and czas - seria["ostatnia_proba"] <= okno
+                    ),
+                    None,
+                )
 
-            # Reguła 2: password spraying z jednego IP.
-            rozne_konta = {
-                proba["uzytkownik"] for proba in proby_ip
-            }
+                if istniejąca_seria is None:
+                    podejrzane_serie.append({
+                        "adres_ip": adres_ip,
+                        "uzytkownik": uzytkownik,
+                        "pierwsza_proba": proby[0]["czas"],
+                        "ostatnia_proba": czas,
+                        "liczba_prob": len(proby),
+                        "logowanie_udane_po_serii": False,
+                        "czas_udanego_logowania": None,
+                    })
+                else:
+                    istniejąca_seria["ostatnia_proba"] = czas
+                    istniejąca_seria["liczba_prob"] = len(proby)
 
+            rozne_konta = {proba["uzytkownik"] for proba in proby_ip}
             poprzedni_alert = ostatni_alert_spraying.get(adres_ip)
             mozna_zglosic = (
-                poprzedni_alert is None
-                or czas - poprzedni_alert > okno
+                poprzedni_alert is None or czas - poprzedni_alert > okno
             )
 
             if (
@@ -221,11 +205,9 @@ def analizuj_logi(logi):
                     "ostatnia_proba": czas,
                     "liczba_prob": len(proby_ip),
                 })
-
                 ostatni_alert_spraying[adres_ip] = czas
 
         elif zdarzenie == "LOGOWANIE_UDANE":
-            # Korelacja udanego logowania z serią z jednego IP.
             for seria in reversed(podejrzane_serie):
                 if seria["adres_ip"] != adres_ip:
                     continue
@@ -242,54 +224,40 @@ def analizuj_logi(logi):
                 seria["czas_udanego_logowania"] = czas.isoformat()
                 break
 
-            # Reguła 3: próby na jedno konto z wielu IP,
-            # po których nastąpiło udane logowanie na to konto.
             rozne_ip = {
                 proba["adres_ip"] for proba in proby_uzytkownika
             }
-
             if (
                 len(proby_uzytkownika) >= PROG_NIEUDANYCH_LOGOWAN
                 and len(rozne_ip) >= PROG_ROZNYCH_IP
             ):
                 rozproszone_alerty.append({
                     "typ_wykrycia": "DISTRIBUTED_BRUTE_FORCE",
-                    "mitre_attack": MITRE_ATTACK[
-                        "DISTRIBUTED_BRUTE_FORCE"
-                    ].copy(),
+                    "mitre_attack": MITRE_ATTACK["DISTRIBUTED_BRUTE_FORCE"].copy(),
                     "adres_ip": adres_ip,
                     "adresy_ip": sorted(rozne_ip),
                     "uzytkownik": uzytkownik,
                     "liczba_nieudanych_prob": len(proby_uzytkownika),
                     "okno_minuty": OKNO_MINUTY,
-                    "pierwsza_proba": (
-                        proby_uzytkownika[0]["czas"].isoformat()
-                    ),
-                    "ostatnia_proba": (
-                        proby_uzytkownika[-1]["czas"].isoformat()
-                    ),
+                    "pierwsza_proba": proby_uzytkownika[0]["czas"].isoformat(),
+                    "ostatnia_proba": proby_uzytkownika[-1]["czas"].isoformat(),
                     "logowanie_udane_po_serii": True,
                     "czas_udanego_logowania": czas.isoformat(),
                     "poziom": "WYSOKI",
                     "opis": (
-                        "Wykryto nieudane próby logowania na to samo "
-                        "konto z wielu adresów IP, po których nastąpiło "
-                        "udane logowanie."
+                        "Wykryto nieudane próby logowania na to samo konto z wielu "
+                        "adresów IP, po których nastąpiło udane logowanie."
                     ),
                     "zalecane_dzialanie": (
-                        "Zweryfikuj udane logowanie, adresy źródłowe, "
-                        "aktywność użytkownika i powiązane zdarzenia."
+                        "Zweryfikuj udane logowanie, adresy źródłowe, aktywność "
+                        "użytkownika i powiązane zdarzenia."
                     ),
                 })
-
-                # Zapobiegaj wielokrotnemu zgłoszeniu tej samej serii.
                 proby_uzytkownika.clear()
 
     alerty = []
-
     for seria in podejrzane_serie:
         sukces_po_serii = seria["logowanie_udane_po_serii"]
-
         alerty.append({
             "typ_wykrycia": "BRUTE_FORCE",
             "mitre_attack": MITRE_ATTACK["BRUTE_FORCE"].copy(),
@@ -303,15 +271,14 @@ def analizuj_logi(logi):
             "czas_udanego_logowania": seria["czas_udanego_logowania"],
             "poziom": "WYSOKI" if sukces_po_serii else "SREDNI",
             "opis": (
-                "Wykryto serię nieudanych logowań, po której "
-                "nastąpiło udane logowanie z tego samego adresu IP "
-                "i na to samo konto."
+                "Wykryto serię nieudanych logowań, po której nastąpiło udane "
+                "logowanie z tego samego adresu IP i na to samo konto."
                 if sukces_po_serii
                 else "Wykryto wiele nieudanych prób logowania."
             ),
             "zalecane_dzialanie": (
-                "Sprawdź udane logowanie, potwierdź aktywność "
-                "użytkownika i przeanalizuj powiązane zdarzenia."
+                "Sprawdź udane logowanie, potwierdź aktywność użytkownika i "
+                "przeanalizuj powiązane zdarzenia."
                 if sukces_po_serii
                 else "Sprawdź adres IP i poszukaj powiązanych zdarzeń."
             ),
@@ -332,12 +299,12 @@ def analizuj_logi(logi):
             "czas_udanego_logowania": None,
             "poziom": "SREDNI",
             "opis": (
-                "Wykryto nieudane próby logowania z jednego adresu IP "
-                "na wiele różnych kont."
+                "Wykryto nieudane próby logowania z jednego adresu IP na wiele "
+                "różnych kont."
             ),
             "zalecane_dzialanie": (
-                "Sprawdź źródłowy adres IP, konta objęte próbami "
-                "i powiązane zdarzenia uwierzytelniania."
+                "Sprawdź źródłowy adres IP, konta objęte próbami i powiązane "
+                "zdarzenia uwierzytelniania."
             ),
         })
 
@@ -346,10 +313,7 @@ def analizuj_logi(logi):
 
 
 def zapisz_alerty(alerty):
-    """Zapisuje wykryte alerty do pliku JSON."""
-
     PLIK_ALERTOW.parent.mkdir(parents=True, exist_ok=True)
-
     for alert in alerty:
         dane_id = "|".join([
             alert["typ_wykrycia"],
@@ -358,42 +322,26 @@ def zapisz_alerty(alerty):
             alert["pierwsza_proba"],
             alert["ostatnia_proba"],
         ])
-
         alert["id_alertu"] = hashlib.sha256(
             dane_id.encode("utf-8")
         ).hexdigest()[:12].upper()
 
     with PLIK_ALERTOW.open("w", encoding="utf-8") as plik:
-        json.dump(
-            alerty,
-            plik,
-            indent=4,
-            ensure_ascii=False,
-        )
+        json.dump(alerty, plik, indent=4, ensure_ascii=False)
+
 
 def wyswietl_podsumowanie(logi, alerty):
-    """Wyświetla statystyki analizy w stylu SOC."""
-
     print("\n" + "=" * 45)
     print("           PODSUMOWANIE SOC")
     print("=" * 45)
-
     print(f"Przeanalizowane zdarzenia: {len(logi)}")
     print(f"Wygenerowane alerty:      {len(alerty)}")
 
-    poziomy = {
-        "KRYTYCZNY": 0,
-        "WYSOKI": 0,
-        "SREDNI": 0,
-        "NISKI": 0,
-    }
-
+    poziomy = {"KRYTYCZNY": 0, "WYSOKI": 0, "SREDNI": 0, "NISKI": 0}
     typy = {}
-
     for alert in alerty:
         poziom = alert.get("poziom", "NIEZNANY")
         poziomy[poziom] = poziomy.get(poziom, 0) + 1
-
         typ = alert.get("typ_wykrycia", "NIEZNANY")
         typy[typ] = typy.get(typ, 0) + 1
 
@@ -410,23 +358,16 @@ def wyswietl_podsumowanie(logi, alerty):
 
     adresy_ip = {}
     konta = {}
-
     for alert in alerty:
         adresy_alertu = set()
-
         ip = alert.get("adres_ip")
         if ip:
             adresy_alertu.add(ip)
-
         adresy_alertu.update(alert.get("adresy_ip", []))
-
         for ip in adresy_alertu:
             adresy_ip[ip] = adresy_ip.get(ip, 0) + 1
-
         for konto in alert.get("konta_objete", []):
             konta[konto] = konta.get(konto, 0) + 1
-
-
         uzytkownik = alert.get("uzytkownik")
         if uzytkownik and not alert.get("konta_objete"):
             konta[uzytkownik] = konta.get(uzytkownik, 0) + 1
@@ -434,9 +375,7 @@ def wyswietl_podsumowanie(logi, alerty):
     print("\nAdresy IP występujące w alertach:")
     if adresy_ip:
         for ip, liczba in sorted(
-            adresy_ip.items(),
-            key=lambda element: element[1],
-            reverse=True,
+            adresy_ip.items(), key=lambda element: element[1], reverse=True
         ):
             print(f"  {ip:<20} {liczba} alert(y)")
     else:
@@ -445,20 +384,15 @@ def wyswietl_podsumowanie(logi, alerty):
     print("\nKonta występujące w alertach:")
     if konta:
         for konto, liczba in sorted(
-            konta.items(),
-            key=lambda element: element[1],
-            reverse=True,
+            konta.items(), key=lambda element: element[1], reverse=True
         ):
             print(f"  {konto:<20} {liczba} alert(y)")
     else:
         print("  Brak.")
-
     print("=" * 45)
 
 
 def zapisz_podsumowanie(logi, alerty):
-    """Zapisuje statystyki analizy do pliku JSON."""
-
     poziomy = {}
     typy = {}
     adresy_ip = {}
@@ -467,24 +401,19 @@ def zapisz_podsumowanie(logi, alerty):
     for alert in alerty:
         poziom = alert.get("poziom", "NIEZNANY")
         poziomy[poziom] = poziomy.get(poziom, 0) + 1
-
         typ = alert.get("typ_wykrycia", "NIEZNANY")
         typy[typ] = typy.get(typ, 0) + 1
 
         adresy_alertu = set()
-
         ip = alert.get("adres_ip")
         if ip:
             adresy_alertu.add(ip)
-
         adresy_alertu.update(alert.get("adresy_ip", []))
-
         for adres in adresy_alertu:
             adresy_ip[adres] = adresy_ip.get(adres, 0) + 1
 
         for konto in alert.get("konta_objete", []):
             konta[konto] = konta.get(konto, 0) + 1
-
         uzytkownik = alert.get("uzytkownik")
         if uzytkownik and not alert.get("konta_objete"):
             konta[uzytkownik] = konta.get(uzytkownik, 0) + 1
@@ -498,21 +427,9 @@ def zapisz_podsumowanie(logi, alerty):
         "konta_w_alertach": konta,
     }
 
-    PLIK_PODSUMOWANIA.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    with PLIK_PODSUMOWANIA.open(
-        "w",
-        encoding="utf-8",
-    ) as plik:
-        json.dump(
-            podsumowanie,
-            plik,
-            indent=4,
-            ensure_ascii=False,
-        )
+    PLIK_PODSUMOWANIA.parent.mkdir(parents=True, exist_ok=True)
+    with PLIK_PODSUMOWANIA.open("w", encoding="utf-8") as plik:
+        json.dump(podsumowanie, plik, indent=4, ensure_ascii=False)
 
 
 def main():
@@ -542,30 +459,16 @@ def main():
         for numer, alert in enumerate(alerty, start=1):
             print(f"\nAlert nr {numer}")
             print(f"  Typ wykrycia: {alert['typ_wykrycia']}")
-
             mitre = alert["mitre_attack"]
-            print(
-                f"  MITRE ATT&CK: {mitre['id']} - {mitre['nazwa']}"
-            )
+            print(f"  MITRE ATT&CK: {mitre['id']} - {mitre['nazwa']}")
             print(f"  Taktyka: {mitre['taktyka']}")
             print(f"  Dokumentacja: {mitre['url']}")
             print(f"  Adres IP: {alert['adres_ip']}")
-
             if "adresy_ip" in alert:
-                print(
-                    f"  Adresy IP objęte serią: "
-                    f"{', '.join(alert['adresy_ip'])}"
-                )
-
+                print(f"  Adresy IP objęte serią: {', '.join(alert['adresy_ip'])}")
             print(f"  Uzytkownik: {alert['uzytkownik']}")
-            print(
-                f"  Nieudane logowania: "
-                f"{alert['liczba_nieudanych_prob']}"
-            )
-            print(
-                "  Udane logowanie po serii: "
-                f"{alert['logowanie_udane_po_serii']}"
-            )
+            print(f"  Nieudane logowania: {alert['liczba_nieudanych_prob']}")
+            print(f"  Udane logowanie po serii: {alert['logowanie_udane_po_serii']}")
             print(f"  Poziom: {alert['poziom']}")
             print(f"  Opis: {alert['opis']}")
 

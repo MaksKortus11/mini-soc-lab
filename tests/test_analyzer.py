@@ -361,5 +361,187 @@ class TestAnalizatoraSOC(unittest.TestCase):
         self.assertEqual(wynik["konta_w_alertach"]["admin"], 1)
 
 
+    def test_brak_alertu_przy_czterech_nieudanych_logowaniach(self):
+        logi = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(4)
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                alert["typ_wykrycia"] == "BRUTE_FORCE"
+                for alert in alerty
+            )
+        )
+
+    def test_brute_force_poza_oknem_czasowym(self):
+        logi = [
+            self.utworz_zdarzenie(i * 2, "LOGOWANIE_NIEUDANE")
+            for i in range(5)
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                alert["typ_wykrycia"] == "BRUTE_FORCE"
+                for alert in alerty
+            )
+        )
+
+    def test_sukces_po_uplywie_okna_nie_podnosi_poziomu(self):
+        logi = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(5)
+        ]
+        logi.append(
+            self.utworz_zdarzenie(10, "LOGOWANIE_UDANE")
+        )
+
+        alerty = analizuj_logi(logi)
+        brute_force = [
+            alert for alert in alerty
+            if alert["typ_wykrycia"] == "BRUTE_FORCE"
+        ]
+
+        self.assertEqual(len(brute_force), 1)
+        self.assertFalse(
+            brute_force[0]["logowanie_udane_po_serii"]
+        )
+        self.assertEqual(brute_force[0]["poziom"], "SREDNI")
+
+    def test_analiza_tych_samych_logow_jest_powtarzalna(self):
+        logi = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(5)
+        ]
+
+        pierwsza_analiza = analizuj_logi(logi)
+        druga_analiza = analizuj_logi(logi)
+
+        self.assertEqual(pierwsza_analiza, druga_analiza)
+
+
+    def test_sukces_dokladnie_na_granicy_okna(self):
+        logi = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(5)
+        ]
+        logi.append(
+            self.utworz_zdarzenie(9, "LOGOWANIE_UDANE")
+        )
+
+        alerty = analizuj_logi(logi)
+        brute_force = [
+            alert for alert in alerty
+            if alert["typ_wykrycia"] == "BRUTE_FORCE"
+        ]
+
+        self.assertEqual(len(brute_force), 1)
+        self.assertTrue(
+            brute_force[0]["logowanie_udane_po_serii"]
+        )
+        self.assertEqual(brute_force[0]["poziom"], "WYSOKI")
+
+
+    def test_dluzsza_seria_brute_force_nie_generuje_duplikatow(self):
+        logi = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(7)
+        ]
+
+        alerty = analizuj_logi(logi)
+        brute_force = [
+            alert for alert in alerty
+            if alert["typ_wykrycia"] == "BRUTE_FORCE"
+        ]
+
+        self.assertEqual(len(brute_force), 1)
+        self.assertEqual(
+            brute_force[0]["liczba_nieudanych_prob"], 6
+        )
+
+
+    def test_dluzsza_seria_aktualizuje_liczbe_prob(self):
+        minuty = [0, 1, 2, 3, 4, 4.5, 5]
+        logi = [
+            self.utworz_zdarzenie(
+                minuta, "LOGOWANIE_NIEUDANE"
+            )
+            for minuta in minuty
+        ]
+
+        alerty = analizuj_logi(logi)
+        brute_force = [
+            alert for alert in alerty
+            if alert["typ_wykrycia"] == "BRUTE_FORCE"
+        ]
+
+        self.assertEqual(len(brute_force), 1)
+        self.assertEqual(
+            brute_force[0]["liczba_nieudanych_prob"], 7
+        )
+        self.assertEqual(
+            brute_force[0]["ostatnia_proba"],
+            logi[-1]["czas"].isoformat(),
+        )
+
+    def test_sukces_po_dluzszej_serii_podnosi_poziom_alertu(self):
+        minuty = [0, 1, 2, 3, 4, 4.5, 5]
+        logi = [
+            self.utworz_zdarzenie(
+                minuta, "LOGOWANIE_NIEUDANE"
+            )
+            for minuta in minuty
+        ]
+        logi.append(
+            self.utworz_zdarzenie(6, "LOGOWANIE_UDANE")
+        )
+
+        alerty = analizuj_logi(logi)
+        brute_force = [
+            alert for alert in alerty
+            if alert["typ_wykrycia"] == "BRUTE_FORCE"
+        ]
+
+        self.assertEqual(len(brute_force), 1)
+        self.assertEqual(
+            brute_force[0]["liczba_nieudanych_prob"], 7
+        )
+        self.assertTrue(
+            brute_force[0]["logowanie_udane_po_serii"]
+        )
+        self.assertEqual(brute_force[0]["poziom"], "WYSOKI")
+
+
+
+    def test_dwie_osobne_serie_brute_force_generuja_dwa_alerty(self):
+        pierwsza_seria = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(5)
+        ]
+
+        druga_seria = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(11, 16)
+        ]
+
+        logi = pierwsza_seria + druga_seria
+
+        alerty = analizuj_logi(logi)
+        brute_force = [
+            alert for alert in alerty
+            if alert["typ_wykrycia"] == "BRUTE_FORCE"
+        ]
+
+        self.assertEqual(len(brute_force), 2)
+        self.assertEqual(
+            [alert["liczba_nieudanych_prob"] for alert in brute_force],
+            [5, 5],
+        )
+ 
+
 if __name__ == "__main__":
     unittest.main()
