@@ -16,6 +16,7 @@ PROG_ROZNYCH_IP = 3
 KATALOG_PROJEKTU = Path(__file__).resolve().parent.parent
 PLIK_LOGOW = KATALOG_PROJEKTU / "data" / "auth_logs.csv"
 PLIK_ALERTOW = KATALOG_PROJEKTU / "reports" / "alerts.json"
+PLIK_PODSUMOWANIA = KATALOG_PROJEKTU / "reports" / "summary.json"
 
 WYMAGANE_KOLUMNY = {
     "znacznik_czasu",
@@ -370,6 +371,148 @@ def zapisz_alerty(alerty):
             ensure_ascii=False,
         )
 
+def wyswietl_podsumowanie(logi, alerty):
+    """Wyświetla statystyki analizy w stylu SOC."""
+
+    print("\n" + "=" * 45)
+    print("           PODSUMOWANIE SOC")
+    print("=" * 45)
+
+    print(f"Przeanalizowane zdarzenia: {len(logi)}")
+    print(f"Wygenerowane alerty:      {len(alerty)}")
+
+    poziomy = {
+        "KRYTYCZNY": 0,
+        "WYSOKI": 0,
+        "SREDNI": 0,
+        "NISKI": 0,
+    }
+
+    typy = {}
+
+    for alert in alerty:
+        poziom = alert.get("poziom", "NIEZNANY")
+        poziomy[poziom] = poziomy.get(poziom, 0) + 1
+
+        typ = alert.get("typ_wykrycia", "NIEZNANY")
+        typy[typ] = typy.get(typ, 0) + 1
+
+    print("\nAlerty według poziomu:")
+    for poziom, liczba in poziomy.items():
+        print(f"  {poziom:<12} {liczba}")
+
+    print("\nAlerty według typu:")
+    if typy:
+        for typ, liczba in sorted(typy.items()):
+            print(f"  {typ:<25} {liczba}")
+    else:
+        print("  Brak wykrytych zagrożeń.")
+
+    adresy_ip = {}
+    konta = {}
+
+    for alert in alerty:
+        adresy_alertu = set()
+
+        ip = alert.get("adres_ip")
+        if ip:
+            adresy_alertu.add(ip)
+
+        adresy_alertu.update(alert.get("adresy_ip", []))
+
+        for ip in adresy_alertu:
+            adresy_ip[ip] = adresy_ip.get(ip, 0) + 1
+
+        for konto in alert.get("konta_objete", []):
+            konta[konto] = konta.get(konto, 0) + 1
+
+
+        uzytkownik = alert.get("uzytkownik")
+        if uzytkownik and not alert.get("konta_objete"):
+            konta[uzytkownik] = konta.get(uzytkownik, 0) + 1
+
+    print("\nAdresy IP występujące w alertach:")
+    if adresy_ip:
+        for ip, liczba in sorted(
+            adresy_ip.items(),
+            key=lambda element: element[1],
+            reverse=True,
+        ):
+            print(f"  {ip:<20} {liczba} alert(y)")
+    else:
+        print("  Brak.")
+
+    print("\nKonta występujące w alertach:")
+    if konta:
+        for konto, liczba in sorted(
+            konta.items(),
+            key=lambda element: element[1],
+            reverse=True,
+        ):
+            print(f"  {konto:<20} {liczba} alert(y)")
+    else:
+        print("  Brak.")
+
+    print("=" * 45)
+
+
+def zapisz_podsumowanie(logi, alerty):
+    """Zapisuje statystyki analizy do pliku JSON."""
+
+    poziomy = {}
+    typy = {}
+    adresy_ip = {}
+    konta = {}
+
+    for alert in alerty:
+        poziom = alert.get("poziom", "NIEZNANY")
+        poziomy[poziom] = poziomy.get(poziom, 0) + 1
+
+        typ = alert.get("typ_wykrycia", "NIEZNANY")
+        typy[typ] = typy.get(typ, 0) + 1
+
+        adresy_alertu = set()
+
+        ip = alert.get("adres_ip")
+        if ip:
+            adresy_alertu.add(ip)
+
+        adresy_alertu.update(alert.get("adresy_ip", []))
+
+        for adres in adresy_alertu:
+            adresy_ip[adres] = adresy_ip.get(adres, 0) + 1
+
+        for konto in alert.get("konta_objete", []):
+            konta[konto] = konta.get(konto, 0) + 1
+
+        uzytkownik = alert.get("uzytkownik")
+        if uzytkownik and not alert.get("konta_objete"):
+            konta[uzytkownik] = konta.get(uzytkownik, 0) + 1
+
+    podsumowanie = {
+        "liczba_zdarzen": len(logi),
+        "liczba_alertow": len(alerty),
+        "alerty_wedlug_poziomu": poziomy,
+        "alerty_wedlug_typu": typy,
+        "adresy_ip_w_alertach": adresy_ip,
+        "konta_w_alertach": konta,
+    }
+
+    PLIK_PODSUMOWANIA.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with PLIK_PODSUMOWANIA.open(
+        "w",
+        encoding="utf-8",
+    ) as plik:
+        json.dump(
+            podsumowanie,
+            plik,
+            indent=4,
+            ensure_ascii=False,
+        )
 
 
 def main():
@@ -388,6 +531,8 @@ def main():
         logi = wczytaj_logi(args.input)
         alerty = analizuj_logi(logi)
         zapisz_alerty(alerty)
+        zapisz_podsumowanie(logi, alerty)
+        wyswietl_podsumowanie(logi, alerty)
 
         print("Analiza zakonczona pomyslnie.")
         print(f"Przeanalizowane zdarzenia: {len(logi)}")

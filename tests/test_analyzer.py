@@ -5,8 +5,12 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
-
-from src.analyzer import analizuj_logi, zapisz_alerty
+from src.analyzer import (
+    analizuj_logi,
+    zapisz_alerty,
+    wyswietl_podsumowanie,
+    zapisz_podsumowanie,
+)
 
 
 class TestAnalizatoraSOC(unittest.TestCase):
@@ -88,7 +92,6 @@ class TestAnalizatoraSOC(unittest.TestCase):
             )
         )
 
-    # PASSWORD SPRAYING
 
     def test_wykrywa_password_spraying(self):
         logi = [
@@ -140,7 +143,6 @@ class TestAnalizatoraSOC(unittest.TestCase):
             )
         )
 
-    # DISTRIBUTED BRUTE FORCE
 
     def test_wykrywa_distributed_brute_force(self):
         adresy = [
@@ -214,7 +216,6 @@ class TestAnalizatoraSOC(unittest.TestCase):
             )
         )
 
-    # ZALECENIA I IDENTYFIKATORY ALERTOW
 
     def utworz_alert_testowy(self):
         return {
@@ -274,6 +275,90 @@ class TestAnalizatoraSOC(unittest.TestCase):
 
         self.assertIn("zalecane_dzialanie", wynik[0])
         self.assertTrue(wynik[0]["zalecane_dzialanie"])
+
+    def test_podsumowanie_pokazuje_liczbe_zdarzen_i_alertow(self):
+        from io import StringIO
+        from contextlib import redirect_stdout
+
+        logi = [
+            self.utworz_zdarzenie(0, "LOGOWANIE_NIEUDANE"),
+            self.utworz_zdarzenie(1, "LOGOWANIE_UDANE"),
+        ]
+
+        alerty = [
+            {
+                "typ_wykrycia": "BRUTE_FORCE",
+                "adres_ip": "192.0.2.10",
+                "uzytkownik": "admin",
+                "poziom": "WYSOKI",
+            }
+        ]
+
+        wyjscie = StringIO()
+        with redirect_stdout(wyjscie):
+            wyswietl_podsumowanie(logi, alerty)
+
+        tekst = wyjscie.getvalue()
+
+        self.assertIn("Przeanalizowane zdarzenia: 2", tekst)
+        self.assertIn("Wygenerowane alerty:      1", tekst)
+        self.assertIn("WYSOKI", tekst)
+        self.assertIn("BRUTE_FORCE", tekst)
+
+
+    def test_podsumowanie_obsluguje_brak_alertow(self):
+        from io import StringIO
+        from contextlib import redirect_stdout
+
+        logi = [
+            self.utworz_zdarzenie(0, "LOGOWANIE_UDANE"),
+        ]
+
+        wyjscie = StringIO()
+        with redirect_stdout(wyjscie):
+            wyswietl_podsumowanie(logi, [])
+
+        tekst = wyjscie.getvalue()
+
+        self.assertIn("Przeanalizowane zdarzenia: 1", tekst)
+        self.assertIn("Wygenerowane alerty:      0", tekst)
+        self.assertIn("Brak wykrytych zagrożeń.", tekst)
+
+    
+    def test_zapisuje_podsumowanie_do_json(self):
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+
+        logi = [
+            self.utworz_zdarzenie(0, "LOGOWANIE_NIEUDANE"),
+            self.utworz_zdarzenie(1, "LOGOWANIE_UDANE"),
+        ]
+
+        alerty = [
+            {
+                "typ_wykrycia": "BRUTE_FORCE",
+                "adres_ip": "192.0.2.10",
+                "uzytkownik": "admin",
+                "poziom": "WYSOKI",
+                "konta_objete": [],
+            }
+        ]
+
+        with TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "summary.json"
+
+            with patch("src.analyzer.PLIK_PODSUMOWANIA", sciezka):
+                zapisz_podsumowanie(logi, alerty)
+
+            with sciezka.open(encoding="utf-8") as plik:
+                wynik = json.load(plik)
+
+        self.assertEqual(wynik["liczba_zdarzen"], 2)
+        self.assertEqual(wynik["liczba_alertow"], 1)
+        self.assertEqual(wynik["alerty_wedlug_poziomu"]["WYSOKI"], 1)
+        self.assertEqual(wynik["alerty_wedlug_typu"]["BRUTE_FORCE"], 1)
+        self.assertEqual(wynik["adresy_ip_w_alertach"]["192.0.2.10"], 1)
+        self.assertEqual(wynik["konta_w_alertach"]["admin"], 1)
 
 
 if __name__ == "__main__":
