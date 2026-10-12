@@ -1,4 +1,3 @@
-
 import json
 import tempfile
 import unittest
@@ -10,6 +9,7 @@ from src.analyzer import (
     zapisz_alerty,
     wyswietl_podsumowanie,
     zapisz_podsumowanie,
+    wczytaj_logi,
 )
 
 
@@ -541,7 +541,53 @@ class TestAnalizatoraSOC(unittest.TestCase):
             [alert["liczba_nieudanych_prob"] for alert in brute_force],
             [5, 5],
         )
- 
+        
+
+    def test_brak_wymaganych_kolumn_w_csv(self):
+        with tempfile.TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "bledne_logi.csv"
+            sciezka.write_text(
+                "czas,adres_ip,zdarzenie\n"
+                "2026-10-12T10:00:00,192.168.1.25,"
+                "LOGOWANIE_NIEUDANE\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises((ValueError, KeyError)):
+                wczytaj_logi(sciezka)
+
+
+
+    def test_nieprawidlowy_format_czasu_w_csv(self):
+        with tempfile.TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "bledny_czas.csv"
+            sciezka.write_text(
+                "czas,adres_ip,uzytkownik,zdarzenie\n"
+                "to-nie-jest-data,192.168.1.25,admin,"
+                "LOGOWANIE_NIEUDANE\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValueError):
+                wczytaj_logi(sciezka)
+
+
+    def test_pusty_plik_csv(self):
+        with tempfile.TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "pusty.csv"
+            sciezka.write_text("", encoding="utf-8")
+
+            with self.assertRaises(ValueError):
+                wczytaj_logi(sciezka)
+
+
+    def test_brak_pliku_csv(self):
+        with tempfile.TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "nie_istnieje.csv"
+
+            with self.assertRaises(FileNotFoundError):
+                wczytaj_logi(sciezka)
+
 
 if __name__ == "__main__":
     unittest.main()
