@@ -1,0 +1,15 @@
+[
+    {
+        "adres_ip": "192.168.1.25",
+        "uzytkownik": "admin",
+        "liczba_nieudanych_prob": 5,
+        "okno_minuty": 5,
+        "pierwsza_proba": "2026-10-12T10:01:00",
+        "ostatnia_proba": "2026-10-12T10:03:00",
+        "logowanie_udane_po_serii": true,
+        "czas_udanego_logowania": "2026-10-12T10:04:00",
+        "poziom": "WYSOKI",
+        "opis": "Wykryto serię nieudanych logowań, po której nastąpiło udane logowanie z tego samego adresu IP i na to samo konto.",
+        "zalecane_dzialanie": "Sprawdź udane logowanie, potwierdź aktywność użytkownika i przeanalizuj powiązane zdarzenia."
+    }
+]
