@@ -291,6 +291,79 @@ class TestAnalizatoraSOC(unittest.TestCase):
             alert["mitre_attack"]["nazwa"], "Password Spraying"
         )
 
+    def test_wykrywa_rozproszony_brute_force_z_udanym_logowaniem(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.30"
+            ),
+            self.utworz_zdarzenie(
+                3, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
+            ),
+            self.utworz_zdarzenie(
+                4, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
+            ),
+            self.utworz_zdarzenie(
+                5, "LOGOWANIE_UDANE", adres_ip="192.0.2.30"
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        alerty_rozproszone = [
+            alert for alert in alerty
+            if alert.get("typ_wykrycia") == "DISTRIBUTED_BRUTE_FORCE"
+        ]
+
+        self.assertEqual(len(alerty_rozproszone), 1)
+        self.assertEqual(
+            alerty_rozproszone[0]["uzytkownik"], "admin"
+        )
+        self.assertTrue(
+            alerty_rozproszone[0]["logowanie_udane_po_serii"]
+        )
+        self.assertEqual(alerty_rozproszone[0]["poziom"], "WYSOKI")
+        self.assertEqual(
+            alerty_rozproszone[0]["liczba_nieudanych_prob"], 5
+        )
+        self.assertEqual(
+            len(alerty_rozproszone[0]["adresy_ip"]), 3
+        )
+
+    def test_rozproszony_brute_force_bez_sukcesu_nie_generuje_alertu(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.30"
+            ),
+            self.utworz_zdarzenie(
+                3, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
+            ),
+            self.utworz_zdarzenie(
+                4, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                alert.get("typ_wykrycia") == "DISTRIBUTED_BRUTE_FORCE"
+                for alert in alerty
+            )
+        )
+
+
 
 
 if __name__ == "__main__":

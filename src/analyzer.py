@@ -1,29 +1,16 @@
 
-import csv
 import argparse
+import csv
 import json
 from collections import defaultdict, deque
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
+
 
 OKNO_MINUTY = 5
 PROG_NIEUDANYCH_LOGOWAN = 5
 PROG_ROZNYCH_KONT = 3
-MITRE_ATTACK = {
-    "BRUTE_FORCE": {
-        "id": "T1110.001",
-        "nazwa": "Password Guessing",
-        "taktyka": "Credential Access",
-        "url": "https://attack.mitre.org/techniques/T1110/001/",
-    },
-    "PASSWORD_SPRAYING": {
-        "id": "T1110.003",
-        "nazwa": "Password Spraying",
-        "taktyka": "Credential Access",
-        "url": "https://attack.mitre.org/techniques/T1110/003/",
-    },
-}
-
+PROG_ROZNYCH_IP = 3
 
 KATALOG_PROJEKTU = Path(__file__).resolve().parent.parent
 PLIK_LOGOW = KATALOG_PROJEKTU / "data" / "auth_logs.csv"
@@ -37,6 +24,27 @@ WYMAGANE_KOLUMNY = {
 }
 
 ZDARZENIA = {"LOGOWANIE_UDANE", "LOGOWANIE_NIEUDANE"}
+
+MITRE_ATTACK = {
+    "BRUTE_FORCE": {
+        "id": "T1110.001",
+        "nazwa": "Password Guessing",
+        "taktyka": "Credential Access",
+        "url": "https://attack.mitre.org/techniques/T1110/001/",
+    },
+    "PASSWORD_SPRAYING": {
+        "id": "T1110.003",
+        "nazwa": "Password Spraying",
+        "taktyka": "Credential Access",
+        "url": "https://attack.mitre.org/techniques/T1110/003/",
+    },
+    "DISTRIBUTED_BRUTE_FORCE": {
+        "id": "T1110",
+        "nazwa": "Brute Force",
+        "taktyka": "Credential Access",
+        "url": "https://attack.mitre.org/techniques/T1110/",
+    },
+}
 
 
 def wczytaj_logi(sciezka=PLIK_LOGOW):
@@ -90,7 +98,7 @@ def wczytaj_logi(sciezka=PLIK_LOGOW):
                 continue
 
             try:
-                czas = datetime.fromisoformat(
+                czas = __import__("datetime").datetime.fromisoformat(
                     wiersz["znacznik_czasu"].strip()
                 )
             except (ValueError, AttributeError):
@@ -125,52 +133,58 @@ def wczytaj_logi(sciezka=PLIK_LOGOW):
 
 
 def analizuj_logi(logi):
-    """
-    Wykrywa brute-force na pojedyncze konto i password spraying
-    obejmujący wiele kont w ruchomym oknie czasowym.
-    """
+    """Wykrywa brute-force, password spraying i rozproszony brute-force."""
 
     okno = timedelta(minutes=OKNO_MINUTY)
 
-    # Dotychczasowa detekcja: adres IP + konkretne konto.
     nieudane_logowania = defaultdict(deque)
-    podejrzane_serie = []
-
-    # Nowa detekcja: wszystkie nieudane próby z danego adresu IP.
     nieudane_na_ip = defaultdict(deque)
+    nieudane_na_uzytkownika = defaultdict(deque)
+
+    podejrzane_serie = []
     podejrzane_spraying = []
+    rozproszone_alerty = []
+
     ostatni_alert_spraying = {}
 
-    for wpis in logi:
+    for wpis in sorted(logi, key=lambda element: element["czas"]):
         czas = wpis["czas"]
         adres_ip = wpis["adres_ip"]
         uzytkownik = wpis["uzytkownik"]
         zdarzenie = wpis["zdarzenie"]
 
-        klucz = (adres_ip, uzytkownik)
-        proby = nieudane_logowania[klucz]
         granica_czasu = czas - okno
+        klucz = (adres_ip, uzytkownik)
 
-        # Usuń stare próby dla konkretnego konta.
+        proby = nieudane_logowania[klucz]
+        proby_ip = nieudane_na_ip[adres_ip]
+        proby_uzytkownika = nieudane_na_uzytkownika[uzytkownik]
+
+        # Usuwanie prób spoza ruchomego okna czasowego.
         while proby and proby[0]["czas"] < granica_czasu:
             proby.popleft()
-
-        # Usuń stare próby dla adresu IP.
-        proby_ip = nieudane_na_ip[adres_ip]
 
         while proby_ip and proby_ip[0]["czas"] < granica_czasu:
             proby_ip.popleft()
 
+        while (
+            proby_uzytkownika
+            and proby_uzytkownika[0]["czas"] < granica_czasu
+        ):
+            proby_uzytkownika.popleft()
+
         if zdarzenie == "LOGOWANIE_NIEUDANE":
             nowa_proba = {
                 "czas": czas,
+                "adres_ip": adres_ip,
                 "uzytkownik": uzytkownik,
             }
 
             proby.append(nowa_proba)
             proby_ip.append(nowa_proba)
+            proby_uzytkownika.append(nowa_proba)
 
-            # Reguła 1: pięć błędów dla jednego konta.
+            # Reguła 1: brute-force na jedno konto z jednego IP.
             if len(proby) == PROG_NIEUDANYCH_LOGOWAN:
                 podejrzane_serie.append({
                     "adres_ip": adres_ip,
@@ -182,13 +196,12 @@ def analizuj_logi(logi):
                     "czas_udanego_logowania": None,
                 })
 
-            # Reguła 2: password spraying z jednego adresu IP.
+            # Reguła 2: password spraying z jednego IP.
             rozne_konta = {
                 proba["uzytkownik"] for proba in proby_ip
             }
 
             poprzedni_alert = ostatni_alert_spraying.get(adres_ip)
-
             mozna_zglosic = (
                 poprzedni_alert is None
                 or czas - poprzedni_alert > okno
@@ -210,26 +223,65 @@ def analizuj_logi(logi):
                 ostatni_alert_spraying[adres_ip] = czas
 
         elif zdarzenie == "LOGOWANIE_UDANE":
-            # Korelacja sukcesu z wcześniejszą serią brute-force.
+            # Korelacja udanego logowania z serią z jednego IP.
             for seria in reversed(podejrzane_serie):
                 if seria["adres_ip"] != adres_ip:
                     continue
-
                 if seria["uzytkownik"] != uzytkownik:
                     continue
-
                 if seria["logowanie_udane_po_serii"]:
                     continue
-
                 if czas < seria["ostatnia_proba"]:
                     continue
-
                 if czas - seria["ostatnia_proba"] > okno:
                     continue
 
                 seria["logowanie_udane_po_serii"] = True
                 seria["czas_udanego_logowania"] = czas.isoformat()
                 break
+
+            # Reguła 3: próby na jedno konto z wielu IP,
+            # po których nastąpiło udane logowanie na to konto.
+            rozne_ip = {
+                proba["adres_ip"] for proba in proby_uzytkownika
+            }
+
+            if (
+                len(proby_uzytkownika) >= PROG_NIEUDANYCH_LOGOWAN
+                and len(rozne_ip) >= PROG_ROZNYCH_IP
+            ):
+                rozproszone_alerty.append({
+                    "typ_wykrycia": "DISTRIBUTED_BRUTE_FORCE",
+                    "mitre_attack": MITRE_ATTACK[
+                        "DISTRIBUTED_BRUTE_FORCE"
+                    ].copy(),
+                    "adres_ip": adres_ip,
+                    "adresy_ip": sorted(rozne_ip),
+                    "uzytkownik": uzytkownik,
+                    "liczba_nieudanych_prob": len(proby_uzytkownika),
+                    "okno_minuty": OKNO_MINUTY,
+                    "pierwsza_proba": (
+                        proby_uzytkownika[0]["czas"].isoformat()
+                    ),
+                    "ostatnia_proba": (
+                        proby_uzytkownika[-1]["czas"].isoformat()
+                    ),
+                    "logowanie_udane_po_serii": True,
+                    "czas_udanego_logowania": czas.isoformat(),
+                    "poziom": "WYSOKI",
+                    "opis": (
+                        "Wykryto nieudane próby logowania na to samo "
+                        "konto z wielu adresów IP, po których nastąpiło "
+                        "udane logowanie."
+                    ),
+                    "zalecane_dzialanie": (
+                        "Zweryfikuj udane logowanie, adresy źródłowe, "
+                        "aktywność użytkownika i powiązane zdarzenia."
+                    ),
+                })
+
+                # Zapobiegaj wielokrotnemu zgłoszeniu tej samej serii.
+                proby_uzytkownika.clear()
 
     alerty = []
 
@@ -287,6 +339,7 @@ def analizuj_logi(logi):
             ),
         })
 
+    alerty.extend(rozproszone_alerty)
     return alerty
 
 
@@ -329,11 +382,21 @@ def main():
         for numer, alert in enumerate(alerty, start=1):
             print(f"\nAlert nr {numer}")
             print(f"  Typ wykrycia: {alert['typ_wykrycia']}")
+
             mitre = alert["mitre_attack"]
-            print(f"  MITRE ATT&CK: {mitre['id']} - {mitre['nazwa']}")
+            print(
+                f"  MITRE ATT&CK: {mitre['id']} - {mitre['nazwa']}"
+            )
             print(f"  Taktyka: {mitre['taktyka']}")
             print(f"  Dokumentacja: {mitre['url']}")
             print(f"  Adres IP: {alert['adres_ip']}")
+
+            if "adresy_ip" in alert:
+                print(
+                    f"  Adresy IP objęte serią: "
+                    f"{', '.join(alert['adresy_ip'])}"
+                )
+
             print(f"  Uzytkownik: {alert['uzytkownik']}")
             print(
                 f"  Nieudane logowania: "

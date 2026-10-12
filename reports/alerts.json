@@ -1,27 +1,27 @@
 [
     {
-        "typ_wykrycia": "PASSWORD_SPRAYING",
+        "typ_wykrycia": "DISTRIBUTED_BRUTE_FORCE",
         "mitre_attack": {
-            "id": "T1110.003",
-            "nazwa": "Password Spraying",
+            "id": "T1110",
+            "nazwa": "Brute Force",
             "taktyka": "Credential Access",
-            "url": "https://attack.mitre.org/techniques/T1110/003/"
+            "url": "https://attack.mitre.org/techniques/T1110/"
         },
-        "adres_ip": "203.0.113.50",
-        "uzytkownik": "user1, user2, user3",
-        "konta_objete": [
-            "user1",
-            "user2",
-            "user3"
+        "adres_ip": "192.0.2.30",
+        "adresy_ip": [
+            "192.0.2.10",
+            "192.0.2.20",
+            "192.0.2.30"
         ],
+        "uzytkownik": "admin",
         "liczba_nieudanych_prob": 5,
         "okno_minuty": 5,
         "pierwsza_proba": "2026-10-12T10:00:00",
-        "ostatnia_proba": "2026-10-12T10:02:00",
-        "logowanie_udane_po_serii": false,
-        "czas_udanego_logowania": null,
-        "poziom": "SREDNI",
-        "opis": "Wykryto nieudane próby logowania z jednego adresu IP na wiele różnych kont.",
-        "zalecane_dzialanie": "Sprawdź źródłowy adres IP, konta objęte próbami i powiązane zdarzenia uwierzytelniania."
+        "ostatnia_proba": "2026-10-12T10:04:00",
+        "logowanie_udane_po_serii": true,
+        "czas_udanego_logowania": "2026-10-12T10:05:00",
+        "poziom": "WYSOKI",
+        "opis": "Wykryto nieudane próby logowania na to samo konto z wielu adresów IP, po których nastąpiło udane logowanie.",
+        "zalecane_dzialanie": "Zweryfikuj udane logowanie, adresy źródłowe, aktywność użytkownika i powiązane zdarzenia."
     }
 ]
