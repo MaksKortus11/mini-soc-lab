@@ -235,6 +235,62 @@ class TestAnalizatoraSOC(unittest.TestCase):
             )
         )
 
+    
+    def test_brute_force_ma_poprawne_mapowanie_mitre(self):
+        logi = [
+            self.utworz_zdarzenie(
+                minuta,
+                "LOGOWANIE_NIEUDANE",
+                uzytkownik="admin",
+            )
+            for minuta in range(5)
+        ]
+
+        alerty = analizuj_logi(logi)
+        alert = next(
+            alert for alert in alerty
+            if alert.get("typ_wykrycia") == "BRUTE_FORCE"
+        )
+
+        self.assertEqual(
+            alert["mitre_attack"]["id"], "T1110.001"
+        )
+        self.assertEqual(
+            alert["mitre_attack"]["nazwa"], "Password Guessing"
+        )
+
+    def test_password_spraying_ma_poprawne_mapowanie_mitre(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
+            ),
+            self.utworz_zdarzenie(
+                3, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                4, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+        alert = next(
+            alert for alert in alerty
+            if alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
+        )
+
+        self.assertEqual(
+            alert["mitre_attack"]["id"], "T1110.003"
+        )
+        self.assertEqual(
+            alert["mitre_attack"]["nazwa"], "Password Spraying"
+        )
+
 
 
 if __name__ == "__main__":

@@ -9,6 +9,21 @@ from pathlib import Path
 OKNO_MINUTY = 5
 PROG_NIEUDANYCH_LOGOWAN = 5
 PROG_ROZNYCH_KONT = 3
+MITRE_ATTACK = {
+    "BRUTE_FORCE": {
+        "id": "T1110.001",
+        "nazwa": "Password Guessing",
+        "taktyka": "Credential Access",
+        "url": "https://attack.mitre.org/techniques/T1110/001/",
+    },
+    "PASSWORD_SPRAYING": {
+        "id": "T1110.003",
+        "nazwa": "Password Spraying",
+        "taktyka": "Credential Access",
+        "url": "https://attack.mitre.org/techniques/T1110/003/",
+    },
+}
+
 
 KATALOG_PROJEKTU = Path(__file__).resolve().parent.parent
 PLIK_LOGOW = KATALOG_PROJEKTU / "data" / "auth_logs.csv"
@@ -223,6 +238,7 @@ def analizuj_logi(logi):
 
         alerty.append({
             "typ_wykrycia": "BRUTE_FORCE",
+            "mitre_attack": MITRE_ATTACK["BRUTE_FORCE"].copy(),
             "adres_ip": seria["adres_ip"],
             "uzytkownik": seria["uzytkownik"],
             "liczba_nieudanych_prob": seria["liczba_prob"],
@@ -250,6 +266,7 @@ def analizuj_logi(logi):
     for seria in podejrzane_spraying:
         alerty.append({
             "typ_wykrycia": "PASSWORD_SPRAYING",
+            "mitre_attack": MITRE_ATTACK["PASSWORD_SPRAYING"].copy(),
             "adres_ip": seria["adres_ip"],
             "uzytkownik": ", ".join(seria["konta"]),
             "konta_objete": seria["konta"],
@@ -312,6 +329,10 @@ def main():
         for numer, alert in enumerate(alerty, start=1):
             print(f"\nAlert nr {numer}")
             print(f"  Typ wykrycia: {alert['typ_wykrycia']}")
+            mitre = alert["mitre_attack"]
+            print(f"  MITRE ATT&CK: {mitre['id']} - {mitre['nazwa']}")
+            print(f"  Taktyka: {mitre['taktyka']}")
+            print(f"  Dokumentacja: {mitre['url']}")
             print(f"  Adres IP: {alert['adres_ip']}")
             print(f"  Uzytkownik: {alert['uzytkownik']}")
             print(

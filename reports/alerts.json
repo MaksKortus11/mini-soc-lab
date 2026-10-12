@@ -1,6 +1,12 @@
 [
     {
         "typ_wykrycia": "PASSWORD_SPRAYING",
+        "mitre_attack": {
+            "id": "T1110.003",
+            "nazwa": "Password Spraying",
+            "taktyka": "Credential Access",
+            "url": "https://attack.mitre.org/techniques/T1110/003/"
+        },
         "adres_ip": "203.0.113.50",
         "uzytkownik": "user1, user2, user3",
         "konta_objete": [
