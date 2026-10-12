@@ -22,6 +22,7 @@
         "czas_udanego_logowania": "2026-10-12T10:05:00",
         "poziom": "WYSOKI",
         "opis": "Wykryto nieudane próby logowania na to samo konto z wielu adresów IP, po których nastąpiło udane logowanie.",
-        "zalecane_dzialanie": "Zweryfikuj udane logowanie, adresy źródłowe, aktywność użytkownika i powiązane zdarzenia."
+        "zalecane_dzialanie": "Zweryfikuj udane logowanie, adresy źródłowe, aktywność użytkownika i powiązane zdarzenia.",
+        "id_alertu": "4D00D139CB17"
     }
 ]

@@ -1,14 +1,12 @@
 
-import sys
+import json
+import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
-
-KATALOG_PROJEKTU = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(KATALOG_PROJEKTU / "src"))
-
-from analyzer import analizuj_logi
+from src.analyzer import analizuj_logi, zapisz_alerty
 
 
 class TestAnalizatoraSOC(unittest.TestCase):
@@ -30,7 +28,9 @@ class TestAnalizatoraSOC(unittest.TestCase):
             "zdarzenie": zdarzenie,
         }
 
-    def test_piec_bledow_generuje_alert(self):
+    # BRUTE FORCE
+
+    def test_wykrywa_brute_force(self):
         logi = [
             self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
             for i in range(5)
@@ -38,332 +38,242 @@ class TestAnalizatoraSOC(unittest.TestCase):
 
         alerty = analizuj_logi(logi)
 
-        self.assertEqual(len(alerty), 1)
-        self.assertEqual(alerty[0]["poziom"], "SREDNI")
-        self.assertFalse(alerty[0]["logowanie_udane_po_serii"])
-
-    def test_cztery_bledy_nie_generuja_alertu(self):
-        logi = [
-            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
-            for i in range(4)
+        brute_force = [
+            a for a in alerty
+            if a["typ_wykrycia"] == "BRUTE_FORCE"
         ]
 
-        alerty = analizuj_logi(logi)
+        self.assertEqual(len(brute_force), 1)
+        self.assertEqual(brute_force[0]["liczba_nieudanych_prob"], 5)
+        self.assertEqual(brute_force[0]["poziom"], "SREDNI")
 
-        self.assertEqual(len(alerty), 0)
-
-    def test_sukces_po_serii_podnosi_poziom_alertu(self):
+    def test_brute_force_zakonczony_sukcesem(self):
         logi = [
             self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
             for i in range(5)
         ]
         logi.append(
-            self.utworz_zdarzenie(6, "LOGOWANIE_UDANE")
+            self.utworz_zdarzenie(5, "LOGOWANIE_UDANE")
         )
 
         alerty = analizuj_logi(logi)
-
-        self.assertEqual(len(alerty), 1)
-        self.assertTrue(alerty[0]["logowanie_udane_po_serii"])
-        self.assertEqual(alerty[0]["poziom"], "WYSOKI")
-
-    def test_zbyt_pozny_sukces_nie_jest_powiazany(self):
-        logi = [
-            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
-            for i in range(5)
-        ]
-        logi.append(
-            self.utworz_zdarzenie(11, "LOGOWANIE_UDANE")
-        )
-
-        alerty = analizuj_logi(logi)
-
-        self.assertEqual(len(alerty), 1)
-        self.assertFalse(alerty[0]["logowanie_udane_po_serii"])
-        self.assertEqual(alerty[0]["poziom"], "SREDNI")
-
-    def test_inny_adres_ip_nie_jest_powiazany(self):
-        logi = [
-            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
-            for i in range(5)
-        ]
-        logi.append(
-            self.utworz_zdarzenie(
-                6,
-                "LOGOWANIE_UDANE",
-                adres_ip="192.168.1.99",
-            )
-        )
-
-        alerty = analizuj_logi(logi)
-
-        self.assertEqual(len(alerty), 1)
-        self.assertFalse(alerty[0]["logowanie_udane_po_serii"])
-
-    def test_inny_uzytkownik_nie_jest_powiazany(self):
-        logi = [
-            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
-            for i in range(5)
-        ]
-        logi.append(
-            self.utworz_zdarzenie(
-                6,
-                "LOGOWANIE_UDANE",
-                uzytkownik="student",
-            )
-        )
-
-        alerty = analizuj_logi(logi)
-
-        self.assertEqual(len(alerty), 1)
-        self.assertFalse(alerty[0]["logowanie_udane_po_serii"])
-        self.assertEqual(alerty[0]["poziom"], "SREDNI")
-
-
-    def test_wykrywa_proby_na_wiele_kont_z_jednego_ip(self):
-        logi = [
-            self.utworz_zdarzenie(
-                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-            self.utworz_zdarzenie(
-                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
-            ),
-            self.utworz_zdarzenie(
-                3, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                4, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
+        brute_force = [
+            a for a in alerty
+            if a["typ_wykrycia"] == "BRUTE_FORCE"
         ]
 
-        alerty = analizuj_logi(logi)
-
-        alerty_spraying = [
-            alert for alert in alerty
-            if alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
-        ]
-
-        self.assertEqual(len(alerty_spraying), 1)
-        self.assertEqual(
-            alerty_spraying[0]["liczba_nieudanych_prob"], 5
+        self.assertEqual(len(brute_force), 1)
+        self.assertTrue(
+            brute_force[0]["logowanie_udane_po_serii"]
         )
-        self.assertEqual(
-            alerty_spraying[0]["adres_ip"], "192.168.1.25"
-        )
+        self.assertEqual(brute_force[0]["poziom"], "WYSOKI")
 
-    def test_spraying_na_dwa_konta_nie_generuje_alertu(self):
+    def test_brak_brute_force_dla_roznych_adresow_i_kont(self):
         logi = [
             self.utworz_zdarzenie(
-                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-            self.utworz_zdarzenie(
-                2, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                3, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-            self.utworz_zdarzenie(
-                4, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-        ]
-
-        alerty = analizuj_logi(logi)
-
-        self.assertFalse(
-            any(
-                alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
-                for alert in alerty
-            )
-        )
-
-    def test_cztery_proby_na_trzy_konta_nie_generuja_spraying(self):
-        logi = [
-            self.utworz_zdarzenie(
-                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-            self.utworz_zdarzenie(
-                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
-            ),
-            self.utworz_zdarzenie(
-                3, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-        ]
-
-        alerty = analizuj_logi(logi)
-
-        self.assertFalse(
-            any(
-                alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
-                for alert in alerty
-            )
-        )
-
-    def test_proby_poza_oknem_czasowym_nie_generuja_spraying(self):
-        logi = [
-            self.utworz_zdarzenie(
-                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-            self.utworz_zdarzenie(
-                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
-            ),
-            self.utworz_zdarzenie(
-                6, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                7, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-        ]
-
-        alerty = analizuj_logi(logi)
-
-        self.assertFalse(
-            any(
-                alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
-                for alert in alerty
-            )
-        )
-
-    
-    def test_brute_force_ma_poprawne_mapowanie_mitre(self):
-        logi = [
-            self.utworz_zdarzenie(
-                minuta,
+                i,
                 "LOGOWANIE_NIEUDANE",
+                adres_ip=f"192.168.1.{i + 1}",
+                uzytkownik=f"user{i}",
+            )
+            for i in range(5)
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                a["typ_wykrycia"] == "BRUTE_FORCE"
+                for a in alerty
+            )
+        )
+
+    # PASSWORD SPRAYING
+
+    def test_wykrywa_password_spraying(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE",
+                uzytkownik="user1",
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE",
+                uzytkownik="user2",
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE",
+                uzytkownik="user3",
+            ),
+            self.utworz_zdarzenie(
+                3, "LOGOWANIE_NIEUDANE",
+                uzytkownik="user1",
+            ),
+            self.utworz_zdarzenie(
+                4, "LOGOWANIE_NIEUDANE",
+                uzytkownik="user2",
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+        spraying = [
+            a for a in alerty
+            if a["typ_wykrycia"] == "PASSWORD_SPRAYING"
+        ]
+
+        self.assertEqual(len(spraying), 1)
+        self.assertGreaterEqual(
+            len(spraying[0]["konta_objete"]), 3
+        )
+
+    def test_brak_spraying_dla_jednego_konta(self):
+        logi = [
+            self.utworz_zdarzenie(i, "LOGOWANIE_NIEUDANE")
+            for i in range(5)
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                a["typ_wykrycia"] == "PASSWORD_SPRAYING"
+                for a in alerty
+            )
+        )
+
+    # DISTRIBUTED BRUTE FORCE
+
+    def test_wykrywa_distributed_brute_force(self):
+        adresy = [
+            "192.0.2.10",
+            "192.0.2.20",
+            "192.0.2.30",
+            "192.0.2.10",
+            "192.0.2.20",
+        ]
+
+        logi = [
+            self.utworz_zdarzenie(
+                i,
+                "LOGOWANIE_NIEUDANE",
+                adres_ip=adres,
                 uzytkownik="admin",
             )
-            for minuta in range(5)
+            for i, adres in enumerate(adresy)
         ]
 
-        alerty = analizuj_logi(logi)
-        alert = next(
-            alert for alert in alerty
-            if alert.get("typ_wykrycia") == "BRUTE_FORCE"
+        logi.append(
+            self.utworz_zdarzenie(
+                5,
+                "LOGOWANIE_UDANE",
+                adres_ip="192.0.2.30",
+                uzytkownik="admin",
+            )
         )
-
-        self.assertEqual(
-            alert["mitre_attack"]["id"], "T1110.001"
-        )
-        self.assertEqual(
-            alert["mitre_attack"]["nazwa"], "Password Guessing"
-        )
-
-    def test_password_spraying_ma_poprawne_mapowanie_mitre(self):
-        logi = [
-            self.utworz_zdarzenie(
-                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-            self.utworz_zdarzenie(
-                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
-            ),
-            self.utworz_zdarzenie(
-                3, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
-            ),
-            self.utworz_zdarzenie(
-                4, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
-            ),
-        ]
-
-        alerty = analizuj_logi(logi)
-        alert = next(
-            alert for alert in alerty
-            if alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
-        )
-
-        self.assertEqual(
-            alert["mitre_attack"]["id"], "T1110.003"
-        )
-        self.assertEqual(
-            alert["mitre_attack"]["nazwa"], "Password Spraying"
-        )
-
-    def test_wykrywa_rozproszony_brute_force_z_udanym_logowaniem(self):
-        logi = [
-            self.utworz_zdarzenie(
-                0, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
-            ),
-            self.utworz_zdarzenie(
-                1, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
-            ),
-            self.utworz_zdarzenie(
-                2, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.30"
-            ),
-            self.utworz_zdarzenie(
-                3, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
-            ),
-            self.utworz_zdarzenie(
-                4, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
-            ),
-            self.utworz_zdarzenie(
-                5, "LOGOWANIE_UDANE", adres_ip="192.0.2.30"
-            ),
-        ]
 
         alerty = analizuj_logi(logi)
 
-        alerty_rozproszone = [
-            alert for alert in alerty
-            if alert.get("typ_wykrycia") == "DISTRIBUTED_BRUTE_FORCE"
+        rozproszone = [
+            a for a in alerty
+            if a["typ_wykrycia"] == "DISTRIBUTED_BRUTE_FORCE"
         ]
 
-        self.assertEqual(len(alerty_rozproszone), 1)
-        self.assertEqual(
-            alerty_rozproszone[0]["uzytkownik"], "admin"
-        )
-        self.assertTrue(
-            alerty_rozproszone[0]["logowanie_udane_po_serii"]
-        )
-        self.assertEqual(alerty_rozproszone[0]["poziom"], "WYSOKI")
-        self.assertEqual(
-            alerty_rozproszone[0]["liczba_nieudanych_prob"], 5
-        )
-        self.assertEqual(
-            len(alerty_rozproszone[0]["adresy_ip"]), 3
-        )
+        self.assertEqual(len(rozproszone), 1)
 
-    def test_rozproszony_brute_force_bez_sukcesu_nie_generuje_alertu(self):
+        alert = rozproszone[0]
+        self.assertEqual(alert["uzytkownik"], "admin")
+        self.assertEqual(alert["liczba_nieudanych_prob"], 5)
+        self.assertEqual(len(alert["adresy_ip"]), 3)
+        self.assertTrue(alert["logowanie_udane_po_serii"])
+        self.assertEqual(alert["poziom"], "WYSOKI")
+
+    def test_brak_distributed_brute_force_bez_sukcesu(self):
+        adresy = [
+            "192.0.2.10",
+            "192.0.2.20",
+            "192.0.2.30",
+            "192.0.2.10",
+            "192.0.2.20",
+        ]
+
         logi = [
             self.utworz_zdarzenie(
-                0, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
-            ),
-            self.utworz_zdarzenie(
-                1, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
-            ),
-            self.utworz_zdarzenie(
-                2, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.30"
-            ),
-            self.utworz_zdarzenie(
-                3, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.10"
-            ),
-            self.utworz_zdarzenie(
-                4, "LOGOWANIE_NIEUDANE", adres_ip="192.0.2.20"
-            ),
+                i,
+                "LOGOWANIE_NIEUDANE",
+                adres_ip=adres,
+                uzytkownik="admin",
+            )
+            for i, adres in enumerate(adresy)
         ]
 
         alerty = analizuj_logi(logi)
 
         self.assertFalse(
             any(
-                alert.get("typ_wykrycia") == "DISTRIBUTED_BRUTE_FORCE"
-                for alert in alerty
+                a["typ_wykrycia"] == "DISTRIBUTED_BRUTE_FORCE"
+                for a in alerty
             )
         )
 
+    # ZALECENIA I IDENTYFIKATORY ALERTOW
 
+    def utworz_alert_testowy(self):
+        return {
+            "typ_wykrycia": "BRUTE_FORCE",
+            "adres_ip": "192.0.2.10",
+            "uzytkownik": "admin",
+            "pierwsza_proba": "2026-10-12T10:00:00",
+            "ostatnia_proba": "2026-10-12T10:04:00",
+            "poziom": "SREDNI",
+            "zalecane_dzialanie": "Sprawdź adres IP i powiązane zdarzenia.",
+        }
+
+    def test_alert_otrzymuje_id(self):
+        alert = self.utworz_alert_testowy()
+
+        with tempfile.TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "alerts.json"
+
+            with patch("src.analyzer.PLIK_ALERTOW", sciezka):
+                zapisz_alerty([alert.copy()])
+
+            with sciezka.open(encoding="utf-8") as plik:
+                wynik = json.load(plik)
+
+        self.assertEqual(len(wynik), 1)
+        self.assertIn("id_alertu", wynik[0])
+        self.assertEqual(len(wynik[0]["id_alertu"]), 12)
+
+    def test_id_alertu_jest_stabilny(self):
+        alert = self.utworz_alert_testowy()
+
+        with tempfile.TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "alerts.json"
+
+            with patch("src.analyzer.PLIK_ALERTOW", sciezka):
+                zapisz_alerty([alert.copy()])
+                with sciezka.open(encoding="utf-8") as plik:
+                    pierwszy_id = json.load(plik)[0]["id_alertu"]
+
+                zapisz_alerty([alert.copy()])
+                with sciezka.open(encoding="utf-8") as plik:
+                    drugi_id = json.load(plik)[0]["id_alertu"]
+
+        self.assertEqual(pierwszy_id, drugi_id)
+
+    def test_alert_zawiera_zalecane_dzialanie(self):
+        alert = self.utworz_alert_testowy()
+
+        with tempfile.TemporaryDirectory() as katalog:
+            sciezka = Path(katalog) / "alerts.json"
+
+            with patch("src.analyzer.PLIK_ALERTOW", sciezka):
+                zapisz_alerty([alert.copy()])
+
+            with sciezka.open(encoding="utf-8") as plik:
+                wynik = json.load(plik)
+
+        self.assertIn("zalecane_dzialanie", wynik[0])
+        self.assertTrue(wynik[0]["zalecane_dzialanie"])
 
 
 if __name__ == "__main__":

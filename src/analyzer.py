@@ -2,6 +2,7 @@
 import argparse
 import csv
 import json
+import hashlib
 from collections import defaultdict, deque
 from datetime import timedelta
 from pathlib import Path
@@ -348,6 +349,19 @@ def zapisz_alerty(alerty):
 
     PLIK_ALERTOW.parent.mkdir(parents=True, exist_ok=True)
 
+    for alert in alerty:
+        dane_id = "|".join([
+            alert["typ_wykrycia"],
+            alert["adres_ip"],
+            alert["uzytkownik"],
+            alert["pierwsza_proba"],
+            alert["ostatnia_proba"],
+        ])
+
+        alert["id_alertu"] = hashlib.sha256(
+            dane_id.encode("utf-8")
+        ).hexdigest()[:12].upper()
+
     with PLIK_ALERTOW.open("w", encoding="utf-8") as plik:
         json.dump(
             alerty,
@@ -355,6 +369,7 @@ def zapisz_alerty(alerty):
             indent=4,
             ensure_ascii=False,
         )
+
 
 
 def main():
