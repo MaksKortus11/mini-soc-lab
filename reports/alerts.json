@@ -1,15 +1,21 @@
 [
     {
-        "adres_ip": "192.168.1.25",
-        "uzytkownik": "admin",
+        "typ_wykrycia": "PASSWORD_SPRAYING",
+        "adres_ip": "203.0.113.50",
+        "uzytkownik": "user1, user2, user3",
+        "konta_objete": [
+            "user1",
+            "user2",
+            "user3"
+        ],
         "liczba_nieudanych_prob": 5,
         "okno_minuty": 5,
-        "pierwsza_proba": "2026-10-12T10:01:00",
-        "ostatnia_proba": "2026-10-12T10:03:00",
-        "logowanie_udane_po_serii": true,
-        "czas_udanego_logowania": "2026-10-12T10:04:00",
-        "poziom": "WYSOKI",
-        "opis": "Wykryto serię nieudanych logowań, po której nastąpiło udane logowanie z tego samego adresu IP i na to samo konto.",
-        "zalecane_dzialanie": "Sprawdź udane logowanie, potwierdź aktywność użytkownika i przeanalizuj powiązane zdarzenia."
+        "pierwsza_proba": "2026-10-12T10:00:00",
+        "ostatnia_proba": "2026-10-12T10:02:00",
+        "logowanie_udane_po_serii": false,
+        "czas_udanego_logowania": null,
+        "poziom": "SREDNI",
+        "opis": "Wykryto nieudane próby logowania z jednego adresu IP na wiele różnych kont.",
+        "zalecane_dzialanie": "Sprawdź źródłowy adres IP, konta objęte próbami i powiązane zdarzenia uwierzytelniania."
     }
 ]

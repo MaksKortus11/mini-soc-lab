@@ -1,13 +1,14 @@
 
 import csv
+import argparse
 import json
 from collections import defaultdict, deque
 from datetime import datetime, timedelta
 from pathlib import Path
 
-
 OKNO_MINUTY = 5
 PROG_NIEUDANYCH_LOGOWAN = 5
+PROG_ROZNYCH_KONT = 3
 
 KATALOG_PROJEKTU = Path(__file__).resolve().parent.parent
 PLIK_LOGOW = KATALOG_PROJEKTU / "data" / "auth_logs.csv"
@@ -23,15 +24,15 @@ WYMAGANE_KOLUMNY = {
 ZDARZENIA = {"LOGOWANIE_UDANE", "LOGOWANIE_NIEUDANE"}
 
 
-def wczytaj_logi():
+def wczytaj_logi(sciezka=PLIK_LOGOW):
     """Wczytuje, sprawdza i sortuje zdarzenia logowania."""
 
-    if not PLIK_LOGOW.exists():
+    if not sciezka.exists():
         raise FileNotFoundError(
-            f"Nie znaleziono pliku z logami: {PLIK_LOGOW}"
+            f"Nie znaleziono pliku z logami: {sciezka}"
         )
 
-    with PLIK_LOGOW.open(
+    with sciezka.open(
         "r",
         encoding="utf-8-sig",
         newline="",
@@ -109,11 +110,21 @@ def wczytaj_logi():
 
 
 def analizuj_logi(logi):
-    """Wykrywa serie nieudanych logowań i koreluje późniejsze sukcesy."""
+    """
+    Wykrywa brute-force na pojedyncze konto i password spraying
+    obejmujący wiele kont w ruchomym oknie czasowym.
+    """
 
     okno = timedelta(minutes=OKNO_MINUTY)
+
+    # Dotychczasowa detekcja: adres IP + konkretne konto.
     nieudane_logowania = defaultdict(deque)
     podejrzane_serie = []
+
+    # Nowa detekcja: wszystkie nieudane próby z danego adresu IP.
+    nieudane_na_ip = defaultdict(deque)
+    podejrzane_spraying = []
+    ostatni_alert_spraying = {}
 
     for wpis in logi:
         czas = wpis["czas"]
@@ -123,18 +134,28 @@ def analizuj_logi(logi):
 
         klucz = (adres_ip, uzytkownik)
         proby = nieudane_logowania[klucz]
-
         granica_czasu = czas - okno
 
+        # Usuń stare próby dla konkretnego konta.
         while proby and proby[0]["czas"] < granica_czasu:
             proby.popleft()
 
+        # Usuń stare próby dla adresu IP.
+        proby_ip = nieudane_na_ip[adres_ip]
+
+        while proby_ip and proby_ip[0]["czas"] < granica_czasu:
+            proby_ip.popleft()
+
         if zdarzenie == "LOGOWANIE_NIEUDANE":
-            proby.append({
+            nowa_proba = {
                 "czas": czas,
                 "uzytkownik": uzytkownik,
-            })
+            }
 
+            proby.append(nowa_proba)
+            proby_ip.append(nowa_proba)
+
+            # Reguła 1: pięć błędów dla jednego konta.
             if len(proby) == PROG_NIEUDANYCH_LOGOWAN:
                 podejrzane_serie.append({
                     "adres_ip": adres_ip,
@@ -146,7 +167,35 @@ def analizuj_logi(logi):
                     "czas_udanego_logowania": None,
                 })
 
+            # Reguła 2: password spraying z jednego adresu IP.
+            rozne_konta = {
+                proba["uzytkownik"] for proba in proby_ip
+            }
+
+            poprzedni_alert = ostatni_alert_spraying.get(adres_ip)
+
+            mozna_zglosic = (
+                poprzedni_alert is None
+                or czas - poprzedni_alert > okno
+            )
+
+            if (
+                len(proby_ip) >= PROG_NIEUDANYCH_LOGOWAN
+                and len(rozne_konta) >= PROG_ROZNYCH_KONT
+                and mozna_zglosic
+            ):
+                podejrzane_spraying.append({
+                    "adres_ip": adres_ip,
+                    "konta": sorted(rozne_konta),
+                    "pierwsza_proba": proby_ip[0]["czas"],
+                    "ostatnia_proba": czas,
+                    "liczba_prob": len(proby_ip),
+                })
+
+                ostatni_alert_spraying[adres_ip] = czas
+
         elif zdarzenie == "LOGOWANIE_UDANE":
+            # Korelacja sukcesu z wcześniejszą serią brute-force.
             for seria in reversed(podejrzane_serie):
                 if seria["adres_ip"] != adres_ip:
                     continue
@@ -173,6 +222,7 @@ def analizuj_logi(logi):
         sukces_po_serii = seria["logowanie_udane_po_serii"]
 
         alerty.append({
+            "typ_wykrycia": "BRUTE_FORCE",
             "adres_ip": seria["adres_ip"],
             "uzytkownik": seria["uzytkownik"],
             "liczba_nieudanych_prob": seria["liczba_prob"],
@@ -197,6 +247,29 @@ def analizuj_logi(logi):
             ),
         })
 
+    for seria in podejrzane_spraying:
+        alerty.append({
+            "typ_wykrycia": "PASSWORD_SPRAYING",
+            "adres_ip": seria["adres_ip"],
+            "uzytkownik": ", ".join(seria["konta"]),
+            "konta_objete": seria["konta"],
+            "liczba_nieudanych_prob": seria["liczba_prob"],
+            "okno_minuty": OKNO_MINUTY,
+            "pierwsza_proba": seria["pierwsza_proba"].isoformat(),
+            "ostatnia_proba": seria["ostatnia_proba"].isoformat(),
+            "logowanie_udane_po_serii": False,
+            "czas_udanego_logowania": None,
+            "poziom": "SREDNI",
+            "opis": (
+                "Wykryto nieudane próby logowania z jednego adresu IP "
+                "na wiele różnych kont."
+            ),
+            "zalecane_dzialanie": (
+                "Sprawdź źródłowy adres IP, konta objęte próbami "
+                "i powiązane zdarzenia uwierzytelniania."
+            ),
+        })
+
     return alerty
 
 
@@ -215,8 +288,19 @@ def zapisz_alerty(alerty):
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Analizator logów uwierzytelniania Mini SOC Lab."
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=PLIK_LOGOW,
+        help="Ścieżka do pliku CSV z logami.",
+    )
+    args = parser.parse_args()
+
     try:
-        logi = wczytaj_logi()
+        logi = wczytaj_logi(args.input)
         alerty = analizuj_logi(logi)
         zapisz_alerty(alerty)
 
@@ -227,6 +311,7 @@ def main():
 
         for numer, alert in enumerate(alerty, start=1):
             print(f"\nAlert nr {numer}")
+            print(f"  Typ wykrycia: {alert['typ_wykrycia']}")
             print(f"  Adres IP: {alert['adres_ip']}")
             print(f"  Uzytkownik: {alert['uzytkownik']}")
             print(

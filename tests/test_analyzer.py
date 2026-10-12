@@ -120,5 +120,122 @@ class TestAnalizatoraSOC(unittest.TestCase):
         self.assertEqual(alerty[0]["poziom"], "SREDNI")
 
 
+    def test_wykrywa_proby_na_wiele_kont_z_jednego_ip(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
+            ),
+            self.utworz_zdarzenie(
+                3, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                4, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        alerty_spraying = [
+            alert for alert in alerty
+            if alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
+        ]
+
+        self.assertEqual(len(alerty_spraying), 1)
+        self.assertEqual(
+            alerty_spraying[0]["liczba_nieudanych_prob"], 5
+        )
+        self.assertEqual(
+            alerty_spraying[0]["adres_ip"], "192.168.1.25"
+        )
+
+    def test_spraying_na_dwa_konta_nie_generuje_alertu(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                3, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+            self.utworz_zdarzenie(
+                4, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
+                for alert in alerty
+            )
+        )
+
+    def test_cztery_proby_na_trzy_konta_nie_generuja_spraying(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
+            ),
+            self.utworz_zdarzenie(
+                3, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
+                for alert in alerty
+            )
+        )
+
+    def test_proby_poza_oknem_czasowym_nie_generuja_spraying(self):
+        logi = [
+            self.utworz_zdarzenie(
+                0, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                1, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+            self.utworz_zdarzenie(
+                2, "LOGOWANIE_NIEUDANE", uzytkownik="user3"
+            ),
+            self.utworz_zdarzenie(
+                6, "LOGOWANIE_NIEUDANE", uzytkownik="user1"
+            ),
+            self.utworz_zdarzenie(
+                7, "LOGOWANIE_NIEUDANE", uzytkownik="user2"
+            ),
+        ]
+
+        alerty = analizuj_logi(logi)
+
+        self.assertFalse(
+            any(
+                alert.get("typ_wykrycia") == "PASSWORD_SPRAYING"
+                for alert in alerty
+            )
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main()
