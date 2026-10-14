@@ -1,3 +1,4 @@
+
 import json
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import streamlit as st
 
 
 ROOT = Path(__file__).resolve().parent
+DATA_DIR = ROOT / "data"
 ALERTS_FILE = ROOT / "reports" / "alerts.json"
 SUMMARY_FILE = ROOT / "reports" / "summary.json"
 
@@ -15,11 +17,6 @@ st.set_page_config(
     page_icon="🟢",
     layout="wide",
 )
-
-
-# =========================================================
-# STYL: STABILNY MOTYW MATRIX (BEZ WARSTWY ZASŁANIAJĄCEJ UI)
-# =========================================================
 
 st.markdown(
     """
@@ -64,6 +61,7 @@ st.markdown(
     [data-testid="stDataFrame"] {
         border: 1px solid #174d2d;
         border-radius: 8px;
+        box-shadow: 0 0 8px rgba(0, 255, 102, 0.04);
     }
 
     div.stButton > button {
@@ -86,20 +84,11 @@ st.markdown(
     code {
         color: #00ff66 !important;
     }
-
-    /* Kolory alertów w tabeli */
-    [data-testid="stDataFrame"] {
-        box-shadow: 0 0 8px rgba(0, 255, 102, 0.04);
-    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
-# =========================================================
-# ODCZYT RAPORTÓW
-# =========================================================
 
 def read_json(path):
     if not path.exists():
@@ -112,8 +101,122 @@ def read_json(path):
         return None
 
 
+def read_all_logs():
+    frames = []
+
+    columns = [
+        "znacznik_czasu",
+        "adres_ip",
+        "uzytkownik",
+        "zdarzenie",
+        "scenariusz",
+    ]
+
+    if not DATA_DIR.exists():
+        return pd.DataFrame(columns=columns)
+
+    required_columns = {
+        "znacznik_czasu",
+        "adres_ip",
+        "uzytkownik",
+        "zdarzenie",
+    }
+
+    for path in sorted(DATA_DIR.glob("*.csv")):
+        try:
+            df = pd.read_csv(path, encoding="utf-8-sig")
+
+            if not required_columns.issubset(df.columns):
+                continue
+
+            df = df.copy()
+            df["scenariusz"] = path.stem
+            frames.append(df)
+
+        except (OSError, pd.errors.ParserError, UnicodeDecodeError):
+            continue
+
+    if not frames:
+        return pd.DataFrame(columns=columns)
+
+    logs = pd.concat(frames, ignore_index=True)
+
+    logs["znacznik_czasu"] = pd.to_datetime(
+        logs["znacznik_czasu"],
+        errors="coerce",
+    )
+
+    return logs.sort_values(
+        "znacznik_czasu",
+        ascending=False,
+        na_position="last",
+    )
+
+
+def mitre_id(alert):
+    mitre = alert.get("mitre_attack")
+
+    if isinstance(mitre, dict):
+        return mitre.get("id", "-")
+
+    return alert.get("mitre_id", "-")
+
+
+def styl_poziomu(value):
+    styles = {
+        "Krytyczny": (
+            "background-color: #5c1018; "
+            "color: #ff6675; font-weight: bold;"
+        ),
+        "Wysoki": (
+            "background-color: #401016; "
+            "color: #ff626e; font-weight: bold;"
+        ),
+        "Średni": (
+            "background-color: #33280a; "
+            "color: #ffd166; font-weight: bold;"
+        ),
+        "Niski": (
+            "background-color: #0b3020; "
+            "color: #00ff88; font-weight: bold;"
+        ),
+    }
+
+    return styles.get(value, "")
+
+
+def styl_zdarzenia(row):
+    if row["ZDARZENIE"] == "LOGOWANIE_UDANE":
+        return [
+            "background-color: #0b3020; color: #00ff88;"
+        ] * len(row)
+
+    if row["ZDARZENIE"] == "LOGOWANIE_NIEUDANE":
+        return [
+            "background-color: #351218; color: #ff6675;"
+        ] * len(row)
+
+    return [""] * len(row)
+
+
+nazwy_poziomow = {
+    "KRYTYCZNY": "Krytyczny",
+    "WYSOKI": "Wysoki",
+    "SREDNI": "Średni",
+    "NISKI": "Niski",
+}
+
+nazwy_typow = {
+    "BRUTE_FORCE": "Brute-force — zgadywanie haseł",
+    "PASSWORD_SPRAYING": "Password spraying — wiele kont",
+    "DISTRIBUTED_BRUTE_FORCE": (
+        "Rozproszony brute-force — wiele adresów IP"
+    ),
+}
+
 summary = read_json(SUMMARY_FILE)
 alerts = read_json(ALERTS_FILE)
+logs = read_all_logs()
 
 if not isinstance(summary, dict):
     summary = {}
@@ -131,69 +234,6 @@ if not isinstance(by_type, dict):
     by_type = {}
 
 
-# =========================================================
-# POLSKIE NAZWY I POMOCNICZE FUNKCJE
-# =========================================================
-
-nazwy_poziomow = {
-    "KRYTYCZNY": "Krytyczny",
-    "WYSOKI": "Wysoki",
-    "SREDNI": "Średni",
-    "NISKI": "Niski",
-}
-
-nazwy_typow = {
-    "BRUTE_FORCE": "Brute-force — zgadywanie haseł",
-    "PASSWORD_SPRAYING": "Password spraying — wiele kont",
-    "DISTRIBUTED_BRUTE_FORCE": (
-        "Rozproszony brute-force — wiele adresów IP"
-    ),
-}
-
-
-def mitre_id(alert):
-    """Pobiera identyfikator techniki MITRE ATT&CK z alertu."""
-    mitre = alert.get("mitre_attack")
-
-    if isinstance(mitre, dict):
-        return mitre.get("id", "-")
-
-    return alert.get("mitre_id", "-")
-
-
-def styl_poziomu(value):
-    """Zwraca styl komórki dla poziomu alertu."""
-    if value == "Krytyczny":
-        return (
-            "background-color: #5c1018; "
-            "color: #ff6675; font-weight: bold;"
-        )
-
-    if value == "Wysoki":
-        return (
-            "background-color: #401016; "
-            "color: #ff626e; font-weight: bold;"
-        )
-
-    if value == "Średni":
-        return (
-            "background-color: #33280a; "
-            "color: #ffd166; font-weight: bold;"
-        )
-
-    if value == "Niski":
-        return (
-            "background-color: #0b3020; "
-            "color: #00ff88; font-weight: bold;"
-        )
-
-    return ""
-
-
-# =========================================================
-# NAGŁÓWEK
-# =========================================================
-
 st.markdown("# 🟢 MINI SOC LAB")
 
 st.markdown(
@@ -208,11 +248,6 @@ st.markdown(
 
 st.divider()
 
-
-# =========================================================
-# PANEL BOCZNY
-# =========================================================
-
 with st.sidebar:
     st.markdown("## // PANEL STEROWANIA")
     st.markdown("`STATUS SYSTEMU: AKTYWNY`")
@@ -221,17 +256,118 @@ with st.sidebar:
     st.divider()
 
     st.markdown("### ŹRÓDŁA DANYCH")
+    st.code("data/*.csv")
     st.code("reports/alerts.json")
     st.code("reports/summary.json")
     st.caption("Dane pochodzą z lokalnego analizatora.")
 
-    if st.button("↻ ODŚWIEŻ DANE", use_container_width=True):
+    if st.button("↻ ODŚWIEŻ DANE", width="stretch"):
         st.rerun()
 
 
-# =========================================================
-# KARTY STATYSTYK
-# =========================================================
+st.markdown("### // DZIENNIK ZDARZEŃ")
+
+if logs.empty:
+    st.warning(
+        "Nie znaleziono prawidłowych plików CSV w folderze data."
+    )
+else:
+    successful_events = int(
+        (logs["zdarzenie"] == "LOGOWANIE_UDANE").sum()
+    )
+    failed_events = int(
+        (logs["zdarzenie"] == "LOGOWANIE_NIEUDANE").sum()
+    )
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric("WSZYSTKIE ZDARZENIA", len(logs))
+    m2.metric("UDANE LOGOWANIA", successful_events)
+    m3.metric("NIEUDANE LOGOWANIA", failed_events)
+
+    f1, f2, f3 = st.columns(3)
+
+    scenarios = ["Wszystkie"] + sorted(
+        logs["scenariusz"].dropna().unique().tolist()
+    )
+
+    selected_scenario = f1.selectbox(
+        "Scenariusz",
+        scenarios,
+        key="log_scenario",
+    )
+
+    event_types = ["Wszystkie"] + sorted(
+        logs["zdarzenie"].dropna().unique().tolist()
+    )
+
+    selected_event = f2.selectbox(
+        "Rodzaj zdarzenia",
+        event_types,
+        key="log_event",
+    )
+
+    search_text = f3.text_input(
+        "Szukaj IP lub użytkownika",
+        key="log_search",
+    )
+
+    filtered_logs = logs.copy()
+
+    if selected_scenario != "Wszystkie":
+        filtered_logs = filtered_logs[
+            filtered_logs["scenariusz"] == selected_scenario
+        ]
+
+    if selected_event != "Wszystkie":
+        filtered_logs = filtered_logs[
+            filtered_logs["zdarzenie"] == selected_event
+        ]
+
+    if search_text:
+        search_mask = (
+            filtered_logs["adres_ip"].astype(str).str.contains(
+                search_text,
+                case=False,
+                na=False,
+                regex=False,
+            )
+            | filtered_logs["uzytkownik"].astype(str).str.contains(
+                search_text,
+                case=False,
+                na=False,
+                regex=False,
+            )
+        )
+
+        filtered_logs = filtered_logs[search_mask]
+
+    display_logs = filtered_logs.rename(
+        columns={
+            "znacznik_czasu": "CZAS",
+            "adres_ip": "ADRES IP",
+            "uzytkownik": "UŻYTKOWNIK",
+            "zdarzenie": "ZDARZENIE",
+            "scenariusz": "SCENARIUSZ",
+        }
+    )
+
+    st.caption(
+        f"Liczba wyświetlanych zdarzeń: {len(display_logs)}"
+    )
+
+    styled_logs = display_logs.style.apply(
+        styl_zdarzenia,
+        axis=1,
+    )
+
+    st.dataframe(
+        styled_logs,
+        width="stretch",
+        hide_index=True,
+    )
+
+st.divider()
+
 
 alert_count = summary.get("liczba_alertow", len(alerts))
 event_count = summary.get("liczba_zdarzen", 0)
@@ -250,120 +386,201 @@ c4.metric("PODEJRZANE ADRESY IP", ip_count)
 st.divider()
 
 
-# =========================================================
-# WYKRES: ALERTY WEDŁUG POZIOMU
-# =========================================================
+chart1, chart2 = st.columns(2, gap="large")
 
-st.markdown("### // ALERTY WEDŁUG POZIOMU")
+with chart1:
+    st.markdown("### // ALERTY WEDŁUG POZIOMU")
 
-kolejnosc_kodow = ["KRYTYCZNY", "WYSOKI", "SREDNI", "NISKI"]
-kolejnosc_poziomow = [nazwy_poziomow[kod] for kod in kolejnosc_kodow]
-
-dane_poziomow = pd.DataFrame({
-    "Poziom": kolejnosc_poziomow,
-    "Liczba alertów": [
-        by_level.get(kod, 0) for kod in kolejnosc_kodow
-    ],
-})
-
-wykres_poziomow = (
-    alt.Chart(dane_poziomow)
-    .mark_bar(color="#00ff66", cornerRadiusEnd=3)
-    .encode(
-        x=alt.X(
-            "Liczba alertów:Q",
-            title="Liczba alertów",
-            axis=alt.Axis(format="d", tickMinStep=1),
-        ),
-        y=alt.Y(
-            "Poziom:N",
-            sort=kolejnosc_poziomow,
-            title=None,
-            axis=alt.Axis(labelAngle=0),
-        ),
-        tooltip=[
-            alt.Tooltip("Poziom:N", title="Poziom"),
-            alt.Tooltip("Liczba alertów:Q", title="Liczba alertów"),
-        ],
-    )
-    .properties(height=180)
-    .configure_view(stroke=None)
-    .configure_axis(
-        labelColor="#b8eac7",
-        titleColor="#00ff66",
-        gridColor="#173322",
-    )
-    .configure(background="#050907")
-)
-
-st.altair_chart(wykres_poziomow, use_container_width=True)
-
-st.divider()
-
-
-# =========================================================
-# WYKRES: TYPY WYKRYTYCH ATAKÓW
-# =========================================================
-
-st.markdown("### // TYPY WYKRYTYCH ATAKÓW")
-
-if by_type:
-    dane_typow = pd.DataFrame([
+    dane_poziomow = pd.DataFrame(
         {
-            "Typ wykrycia": nazwy_typow.get(typ, typ),
-            "Liczba alertów": liczba,
+            "Poziom": [
+                nazwy_poziomow[kod]
+                for kod in ["KRYTYCZNY", "WYSOKI", "SREDNI", "NISKI"]
+            ],
+            "Liczba alertów": [
+                by_level.get(kod, 0)
+                for kod in ["KRYTYCZNY", "WYSOKI", "SREDNI", "NISKI"]
+            ],
         }
-        for typ, liczba in by_type.items()
-    ])
+    )
 
-    wykres_typow = (
-        alt.Chart(dane_typow)
-        .mark_bar(color="#00cc55", cornerRadiusEnd=3)
+    sort_poziomow = [
+        "Krytyczny",
+        "Wysoki",
+        "Średni",
+        "Niski",
+    ]
+
+    wykres_poziomow = (
+        alt.Chart(dane_poziomow)
+        .mark_bar(
+            color="#00ff66",
+            cornerRadiusEnd=3,
+        )
         .encode(
             x=alt.X(
                 "Liczba alertów:Q",
-                title="Liczba alertów",
+                title=None,
+                scale=alt.Scale(domainMin=0),
                 axis=alt.Axis(format="d", tickMinStep=1),
             ),
             y=alt.Y(
-                "Typ wykrycia:N",
-                sort="-x",
+                "Poziom:N",
+                sort=sort_poziomow,
                 title=None,
-                axis=alt.Axis(
-                    labelAngle=0,
-                    labelLimit=600,
-                    labelPadding=8,
-                ),
+                axis=alt.Axis(labelAngle=0),
             ),
             tooltip=[
-                alt.Tooltip("Typ wykrycia:N", title="Typ wykrycia"),
+                alt.Tooltip("Poziom:N", title="Poziom"),
                 alt.Tooltip(
                     "Liczba alertów:Q",
                     title="Liczba alertów",
                 ),
             ],
         )
-        .properties(height=max(120, len(dane_typow) * 55))
-        .configure_view(stroke=None)
-        .configure_axis(
+    )
+
+    etykiety_poziomow = (
+        alt.Chart(dane_poziomow)
+        .mark_text(
+            align="left",
+            dx=5,
+            color="#d7ffe3",
+            fontSize=11,
+        )
+        .encode(
+            x=alt.X(
+                "Liczba alertów:Q",
+                scale=alt.Scale(domainMin=0),
+            ),
+            y=alt.Y(
+                "Poziom:N",
+                sort=sort_poziomow,
+            ),
+            text=alt.Text(
+                "Liczba alertów:Q",
+                format="d",
+            ),
+        )
+    )
+
+    wykres_poziomow_polaczony = (
+        wykres_poziomow + etykiety_poziomow
+    ).configure_view(
+        stroke=None
+    ).configure_axis(
+        labelColor="#b8eac7",
+        titleColor="#00ff66",
+        gridColor="#173322",
+        labelFontSize=11,
+    ).configure(
+        background="#050907"
+    )
+
+    st.altair_chart(
+        wykres_poziomow_polaczony,
+        width="stretch",
+    )
+
+
+with chart2:
+    st.markdown("### // TYPY WYKRYTYCH ATAKÓW")
+
+    if by_type:
+        dane_typow = pd.DataFrame(
+            [
+                {
+                    "Typ wykrycia": nazwy_typow.get(typ, typ),
+                    "Liczba alertów": liczba,
+                }
+                for typ, liczba in by_type.items()
+            ]
+        )
+
+        wykres_typow = (
+            alt.Chart(dane_typow)
+            .mark_bar(
+                color="#00cc55",
+                cornerRadiusEnd=3,
+            )
+            .encode(
+                x=alt.X(
+                    "Liczba alertów:Q",
+                    title=None,
+                    scale=alt.Scale(domainMin=0),
+                    axis=alt.Axis(format="d", tickMinStep=1),
+                ),
+                y=alt.Y(
+                    "Typ wykrycia:N",
+                    sort="-x",
+                    title=None,
+                    axis=alt.Axis(
+                        labelAngle=0,
+                        labelLimit=250,
+                        labelPadding=6,
+                    ),
+                ),
+                tooltip=[
+                    alt.Tooltip(
+                        "Typ wykrycia:N",
+                        title="Typ wykrycia",
+                    ),
+                    alt.Tooltip(
+                        "Liczba alertów:Q",
+                        title="Liczba alertów",
+                    ),
+                ],
+            )
+        )
+
+        etykiety_typow = (
+            alt.Chart(dane_typow)
+            .mark_text(
+                align="left",
+                dx=5,
+                color="#d7ffe3",
+                fontSize=11,
+            )
+            .encode(
+                x=alt.X(
+                    "Liczba alertów:Q",
+                    scale=alt.Scale(domainMin=0),
+                ),
+                y=alt.Y(
+                    "Typ wykrycia:N",
+                    sort="-x",
+                ),
+                text=alt.Text(
+                    "Liczba alertów:Q",
+                    format="d",
+                ),
+            )
+        )
+
+        wykres_typow_polaczony = (
+            wykres_typow + etykiety_typow
+        ).properties(
+            height=max(100, len(dane_typow) * 38)
+        ).configure_view(
+            stroke=None
+        ).configure_axis(
             labelColor="#b8eac7",
             titleColor="#00ff66",
             gridColor="#173322",
+            labelFontSize=11,
+        ).configure(
+            background="#050907"
         )
-        .configure(background="#050907")
-    )
 
-    st.altair_chart(wykres_typow, use_container_width=True)
-else:
-    st.info("Brak danych o wykrytych typach ataków.")
-
+        st.altair_chart(
+            wykres_typow_polaczony,
+            width="stretch",
+        )
+    else:
+        st.info("Brak danych o wykrytych typach ataków.")
 
 st.divider()
 
-
-# =========================================================
-# TABELA ALERTÓW
-# =========================================================
 
 st.markdown("### // STRUMIEŃ WYKRYTYCH ZAGROŻEŃ")
 
@@ -371,29 +588,32 @@ if alerts:
     rows = []
 
     for alert in alerts:
-        adresy = alert.get("adresy_ip", [])
-        if not isinstance(adresy, list):
-            adresy = []
+        addresses = alert.get("adresy_ip", [])
 
-        adres_ip = (
-            ", ".join(str(ip) for ip in adresy)
+        if not isinstance(addresses, list):
+            addresses = []
+
+        address_text = (
+            ", ".join(str(ip) for ip in addresses)
             or alert.get("adres_ip", "-")
         )
 
-        rows.append({
-            "ID ALERTU": alert.get("id_alertu", "-"),
-            "TYP WYKRYCIA": nazwy_typow.get(
-                alert.get("typ_wykrycia", ""),
-                alert.get("typ_wykrycia", "-"),
-            ),
-            "POZIOM": nazwy_poziomow.get(
-                alert.get("poziom", ""),
-                alert.get("poziom", "-"),
-            ),
-            "ADRESY IP": adres_ip,
-            "KONTO": alert.get("uzytkownik", "-"),
-            "MITRE ATT&CK": mitre_id(alert),
-        })
+        detection_type = alert.get("typ_wykrycia", "-")
+        level = alert.get("poziom", "-")
+
+        rows.append(
+            {
+                "ID ALERTU": alert.get("id_alertu", "-"),
+                "TYP WYKRYCIA": nazwy_typow.get(
+                    detection_type,
+                    detection_type,
+                ),
+                "POZIOM": nazwy_poziomow.get(level, level),
+                "ADRESY IP": address_text,
+                "KONTO": alert.get("uzytkownik", "-"),
+                "MITRE ATT&CK": mitre_id(alert),
+            }
+        )
 
     df = pd.DataFrame(rows)
 
@@ -402,6 +622,7 @@ if alerts:
     severity_options = ["Wszystkie"] + sorted(
         df["POZIOM"].dropna().unique().tolist()
     )
+
     type_options = ["Wszystkie"] + sorted(
         df["TYP WYKRYCIA"].dropna().unique().tolist()
     )
@@ -409,17 +630,26 @@ if alerts:
     selected_severity = f1.selectbox(
         "Filtruj poziom alertu",
         severity_options,
+        key="alert_severity",
     )
+
     selected_type = f2.selectbox(
         "Filtruj typ wykrycia",
         type_options,
+        key="alert_type",
     )
-    search_ip = f3.text_input("Szukaj adresu IP")
+
+    search_ip = f3.text_input(
+        "Szukaj adresu IP",
+        key="alert_ip",
+    )
 
     filtered = df.copy()
 
     if selected_severity != "Wszystkie":
-        filtered = filtered[filtered["POZIOM"] == selected_severity]
+        filtered = filtered[
+            filtered["POZIOM"] == selected_severity
+        ]
 
     if selected_type != "Wszystkie":
         filtered = filtered[
@@ -443,7 +673,7 @@ if alerts:
 
     st.dataframe(
         styled_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -455,6 +685,7 @@ if alerts:
                 f"{nazwy_typow.get(alerts[i].get('typ_wykrycia', ''), alerts[i].get('typ_wykrycia', 'ALERT'))} "
                 f"— {alerts[i].get('id_alertu', i)}"
             ),
+            key="alert_details",
         )
 
         alert_detail = alerts[selected_index]
@@ -471,14 +702,8 @@ if alerts:
             st.success("Alert o niskim poziomie ryzyka.")
 
         st.json(alert_detail)
-
 else:
     st.success("Brak alertów w aktualnym raporcie.")
-
-
-# =========================================================
-# STOPKA
-# =========================================================
 
 st.divider()
 

@@ -1,56 +1,67 @@
 # Mini SOC Lab — analizator logów uwierzytelniania
 
-Projekt edukacyjny z zakresu cyberbezpieczeństwa. Narzędzie napisane w Pythonie analizuje logi uwierzytelniania, wykrywa podejrzane wzorce logowania i generuje alerty oraz raporty JSON.
+Projekt edukacyjny symulujący wybrane zadania analityka SOC (Security Operations Center). Aplikacja analizuje logi uwierzytelniania, wykrywa podejrzane wzorce logowania, generuje alerty i prezentuje wyniki w interaktywnym dashboardzie.
 
-## Cel projektu
-
-Celem projektu jest praktyczne przećwiczenie podstaw analizy logów, tworzenia reguł detekcji, korelacji zdarzeń i testowania mechanizmów bezpieczeństwa — z perspektywy analityka SOC.
+Projekt powstał w celu praktycznej nauki analizy logów, wykrywania zagrożeń, korelacji zdarzeń oraz mapowania wykryć na framework MITRE ATT&CK.
 
 ## Funkcjonalności
 
-- Wczytywanie i walidacja danych z plików CSV.
-- Wykrywanie brute-force — powtarzających się nieudanych prób logowania na jedno konto z jednego adresu IP.
-- Wykrywanie password spraying — prób logowania na wiele kont z jednego adresu IP.
-- Wykrywanie distributed brute-force — prób logowania na to samo konto z wielu adresów IP.
-- Korelacja nieudanych prób z późniejszym udanym logowaniem.
+- Analiza logów uwierzytelniania z plików CSV.
+- Walidacja danych wejściowych.
+- Wykrywanie ataków brute force.
+- Wykrywanie password spraying.
+- Wykrywanie rozproszonego brute force.
+- Korelacja nieudanych prób logowania z późniejszym udanym logowaniem.
 - Klasyfikacja alertów według poziomu ryzyka.
-- Mapowanie wykryć na techniki MITRE ATT&CK.
-- Generowanie raportów `alerts.json` i `summary.json`.
-- Stabilne identyfikatory alertów.
-- Automatyczne testy jednostkowe, w tym przypadki brzegowe i błędne dane wejściowe.
+- Mapowanie wykryć na MITRE ATT&CK.
+- Generowanie raportów JSON.
+- Interaktywny dashboard w Streamlit.
+- Filtrowanie i przeglądanie logów według scenariusza, rodzaju zdarzenia, adresu IP i użytkownika.
+- Wizualizacja alertów i poziomów ryzyka.
+- Testy jednostkowe z wykorzystaniem `unittest`.
+
+## Wykrywane zagrożenia
+
+| Typ wykrycia | Warunek | MITRE ATT&CK |
+|---|---|---|
+| Brute force | Co najmniej 5 nieudanych prób logowania na to samo konto z jednego IP w ciągu 5 minut | T1110.001 — Password Guessing |
+| Password spraying | Co najmniej 5 nieudanych prób z jednego IP na co najmniej 3 różne konta w analizowanym oknie czasowym | T1110.003 — Password Spraying |
+| Distributed brute force | Co najmniej 5 nieudanych prób na to samo konto z co najmniej 3 różnych adresów IP w analizowanym oknie czasowym | T1110 — Brute Force |
+
+Wykrycia dotyczą taktyki **Credential Access**.
+
+Jeśli po serii nieudanych prób nastąpi udane logowanie z tego samego adresu IP na to samo konto, analizator może podnieść poziom alertu do `WYSOKI`.
+
+Poziom alertu jest oceną heurystyczną. Udane logowanie po serii niepowodzeń nie stanowi samo w sobie dowodu przejęcia konta.
+
+## Dashboard
+
+Dashboard został zbudowany w Pythonie z wykorzystaniem Streamlit, Pandas i Altair.
+
+Udostępnia:
+
+- dziennik zdarzeń z plików CSV;
+- statystyki udanych i nieudanych logowań;
+- filtrowanie logów;
+- kolorystyczne oznaczenie udanych i nieudanych logowań;
+- wykresy alertów według poziomu i typu;
+- tabelę wykrytych zagrożeń;
+- filtrowanie alertów;
+- szczegóły alertów i identyfikatory MITRE ATT&CK.
+
+Interfejs wykorzystuje ciemny motyw inspirowany estetyką Matrix.
 
 ## Technologie
 
-- Python 3
-- CSV i JSON
+- Python
+- Pandas
+- Streamlit
+- Altair
+- JSON
+- CSV
 - `unittest`
+- MITRE ATT&CK
 - Git i GitHub
-
-Projekt nie wymaga instalowania dodatkowych bibliotek.
-
-## Reguły detekcji
-
-Analizator wykorzystuje okno czasowe o długości pięciu minut.
-
-| Reguła | Opis |
-|---|---|
-| Brute-force | Co najmniej 5 nieudanych prób logowania na to samo konto z jednego IP w oknie czasowym |
-| Password spraying | Co najmniej 5 nieudanych prób z jednego IP obejmujących co najmniej 3 różne konta w oknie czasowym |
-| Distributed brute-force | Co najmniej 5 nieudanych prób na to samo konto z co najmniej 3 adresów IP w oknie czasowym |
-
-Udane logowanie skorelowane z podejrzaną serią może podnieść poziom alertu do `WYSOKI`, zgodnie z regułami zaimplementowanymi w analizatorze.
-
-Poziomy alertów są uproszczoną klasyfikacją edukacyjną. Alert nie stanowi sam w sobie dowodu włamania.
-
-## MITRE ATT&CK
-
-| Wykrycie | Technika | Taktyka |
-|---|---|---|
-| Brute-force — zgadywanie haseł | [T1110.001 — Password Guessing](https://attack.mitre.org/techniques/T1110/001/) | Credential Access |
-| Password spraying | [T1110.003 — Password Spraying](https://attack.mitre.org/techniques/T1110/003/) | Credential Access |
-| Distributed brute-force | [T1110 — Brute Force](https://attack.mitre.org/techniques/T1110/) | Credential Access |
-
-Mapowanie służy uporządkowaniu wykryć według frameworka MITRE ATT&CK. Nie oznacza, że sam alert potwierdza wystąpienie danej techniki.
 
 ## Struktura projektu
 
@@ -59,91 +70,112 @@ mini-soc-lab/
 ├── data/
 │   ├── auth_logs.csv
 │   ├── spraying_logs.csv
-│   └── distributed_bruteforce_logs.csv
+│   ├── distributed_bruteforce_logs.csv
+│   ├── password_spraying_logs.csv
+│   ├── slow_bruteforce_logs.csv
+│   ├── normal_activity_logs.csv
+│   └── successful_compromise_logs.csv
+├── docs/
+├── reports/
+│   ├── alerts.json
+│   └── summary.json
+├── screenshots/
 ├── src/
 │   └── analyzer.py
 ├── tests/
 │   └── test_analyzer.py
-├── reports/
-│   ├── alerts.json
-│   └── summary.json
-├── docs/
-├── screenshots/
+├── dashboard.py
 ├── README.md
 └── .gitignore
 ```
 
-## Wymagania
-
-- Python 3.10 lub nowszy.
-- Git — jeśli chcesz pobrać projekt z repozytorium.
-- Brak dodatkowych zależności zewnętrznych.
+Pliki CSV zawierają przykładowe scenariusze testowe. Folder `reports/` przechowuje raporty generowane przez analizator.
 
 ## Uruchomienie
 
-Uruchom terminal w głównym katalogu projektu.
+### 1. Wymagania
 
-Domyślny scenariusz:
+Zainstalowany Python oraz Git. Do uruchomienia dashboardu potrzebne są również biblioteki Streamlit, Pandas i Altair.
+
+### 2. Instalacja zależności
+
+W terminalu, w katalogu projektu, wykonaj:
+
+```powershell
+py -m pip install streamlit pandas altair
+```
+
+### 3. Uruchomienie analizatora
+
+Analiza domyślnego pliku:
 
 ```powershell
 py src/analyzer.py
 ```
 
-Scenariusz password spraying:
+Analiza wybranego scenariusza:
 
 ```powershell
-py src/analyzer.py --input data/spraying_logs.csv
+py src/analyzer.py --input data/password_spraying_logs.csv
 ```
 
-Scenariusz distributed brute-force:
+Przykładowe dodatkowe scenariusze:
 
 ```powershell
-py src/analyzer.py --input data/distributed_bruteforce_logs.csv
+py src/analyzer.py --input data/slow_bruteforce_logs.csv
+py src/analyzer.py --input data/normal_activity_logs.csv
+py src/analyzer.py --input data/successful_compromise_logs.csv
 ```
 
-Program wyświetla podsumowanie w terminalu i zapisuje wyniki w katalogu `reports/`. Kolejne uruchomienia nadpisują generowane raporty.
+Analizator zapisuje raporty w folderze `reports/`. Kolejne uruchomienie może zastąpić poprzednie wyniki.
 
-## Raporty
+### 4. Uruchomienie dashboardu
 
-- `reports/alerts.json` — szczegółowe informacje o wykrytych alertach, m.in. typ wykrycia, adresy IP, konto, liczba prób, poziom alertu, identyfikator i zalecane działanie.
-- `reports/summary.json` — podsumowanie analizy, liczba zdarzeń i alertów, zestawienie według poziomu i typu oraz adresów IP i kont występujących w alertach.
+```powershell
+py -m streamlit run dashboard.py
+```
 
-## Testy
+Następnie otwórz lokalny adres wyświetlony w terminalu, zwykle `http://localhost:8501`.
 
-Uruchom testy jednostkowe:
+Dashboard wczytuje pliki CSV z folderu `data/` oraz raporty JSON z folderu `reports/`.
+
+### 5. Uruchomienie testów
 
 ```powershell
 py -m unittest discover -s tests -v
 ```
 
-Zestaw testów obejmuje m.in.:
+**Wynik testów:** 26/26 testów zaliczonych.
 
-- wykrywanie trzech typów podejrzanych wzorców logowania;
-- przypadki poniżej progu detekcji;
-- korelację nieudanego i udanego logowania;
-- granice okna czasowego;
-- dłuższe i rozdzielone serie prób;
-- stabilność identyfikatorów alertów;
-- generowanie raportów;
-- brakujące kolumny, nieprawidłowe znaczniki czasu, pusty plik i brakujący plik CSV.
+## Przykładowe scenariusze
+
+| Scenariusz | Oczekiwany rezultat |
+|---|---|
+| Password spraying | Alert `PASSWORD_SPRAYING` |
+| Slow brute force | Brak alertu, jeśli próby nie spełniają progu czasowego |
+| Normalna aktywność | Brak alertu brute force |
+| Brute force zakończony udanym logowaniem | Alert `BRUTE_FORCE` z podwyższonym poziomem ryzyka |
+| Rozproszony brute force | Alert po spełnieniu warunków dotyczących konta, liczby prób i adresów IP |
 
 ## Ograniczenia
 
-- Projekt wykorzystuje syntetyczne logi, a nie dane z produkcyjnych systemów.
-- Analiza odbywa się lokalnie, na podstawie plików CSV.
-- Narzędzie nie blokuje adresów IP ani kont użytkowników.
-- Nie jest zintegrowane z produkcyjną platformą SIEM.
-- Reguły detekcji są uproszczone i mogą generować fałszywe alarmy lub nie wykrywać bardziej złożonych ataków.
-- Wykryte zdarzenia wymagają kontekstu i dalszej analizy.
+- Projekt jest edukacyjną symulacją analizatora SOC.
+- Dane wejściowe są przykładowymi logami, a nie strumieniem zdarzeń z produkcyjnej infrastruktury.
+- Reguły wykrywania opierają się na ustalonych progach i oknach czasowych.
+- Wykrycie podejrzanego wzorca nie przesądza o faktycznym włamaniu.
+- Raporty JSON przedstawiają wyniki ostatniej analizy, a dashboard prezentuje logi ze wszystkich prawidłowych plików CSV w folderze `data/`.
 
-## Możliwe rozszerzenia
+## Możliwe dalsze rozszerzenia
 
-- Integracja z Wazuh lub inną platformą SIEM.
-- Dodanie nowych reguł detekcji.
-- Obsługa kolejnych formatów logów.
-- Rozbudowa raportowania i prezentacji alertów.
-- Dodanie logowania działania samego analizatora i konfiguracji progów detekcji.
+- Integracja z rzeczywistymi logami systemowymi.
+- Dodanie obsługi logów Windows i Linux.
+- Rozszerzenie reguł wykrywania i korelacji zdarzeń.
+- Eksport raportów do dodatkowych formatów.
+- Dodanie testów integracyjnych.
+- Automatyczne odświeżanie danych i historii alertów.
 
-## Przeznaczenie
+## Cel projektu
 
-Projekt ma charakter edukacyjny i służy nauce defensywnego cyberbezpieczeństwa. Wszystkie dołączone logi są fikcyjne.
+Celem projektu jest rozwijanie praktycznych umiejętności z zakresu cyberbezpieczeństwa, analizy logów, wykrywania zagrożeń, testowania kodu oraz prezentowania wyników analizy w czytelnym interfejsie.
+
+Projekt stanowi element portfolio rozwijanego w kierunku stanowisk juniorskich i stażowych związanych z cyberbezpieczeństwem oraz analizą bezpieczeństwa.
