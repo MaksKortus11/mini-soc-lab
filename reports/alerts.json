@@ -1,28 +1,23 @@
 [
     {
-        "typ_wykrycia": "DISTRIBUTED_BRUTE_FORCE",
+        "typ_wykrycia": "BRUTE_FORCE",
         "mitre_attack": {
-            "id": "T1110",
-            "nazwa": "Brute Force",
+            "id": "T1110.001",
+            "nazwa": "Password Guessing",
             "taktyka": "Credential Access",
-            "url": "https://attack.mitre.org/techniques/T1110/"
+            "url": "https://attack.mitre.org/techniques/T1110/001/"
         },
-        "adres_ip": "192.0.2.30",
-        "adresy_ip": [
-            "192.0.2.10",
-            "192.0.2.20",
-            "192.0.2.30"
-        ],
+        "adres_ip": "192.0.2.50",
         "uzytkownik": "admin",
         "liczba_nieudanych_prob": 5,
         "okno_minuty": 5,
-        "pierwsza_proba": "2026-10-12T10:00:00",
-        "ostatnia_proba": "2026-10-12T10:04:00",
+        "pierwsza_proba": "2026-10-14T09:00:00",
+        "ostatnia_proba": "2026-10-14T09:02:00",
         "logowanie_udane_po_serii": true,
-        "czas_udanego_logowania": "2026-10-12T10:05:00",
+        "czas_udanego_logowania": "2026-10-14T09:03:00",
         "poziom": "WYSOKI",
-        "opis": "Wykryto nieudane próby logowania na to samo konto z wielu adresów IP, po których nastąpiło udane logowanie.",
-        "zalecane_dzialanie": "Zweryfikuj udane logowanie, adresy źródłowe, aktywność użytkownika i powiązane zdarzenia.",
-        "id_alertu": "4D00D139CB17"
+        "opis": "Wykryto serię nieudanych logowań, po której nastąpiło udane logowanie z tego samego adresu IP i na to samo konto.",
+        "zalecane_dzialanie": "Sprawdź udane logowanie, potwierdź aktywność użytkownika i przeanalizuj powiązane zdarzenia.",
+        "id_alertu": "BEB6F3F0802B"
     }
 ]
