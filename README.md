@@ -4,6 +4,16 @@ Projekt edukacyjny symulujący wybrane zadania analityka SOC (Security Operation
 
 Projekt powstał w celu praktycznej nauki analizy logów, wykrywania zagrożeń, korelacji zdarzeń oraz mapowania wykryć na framework MITRE ATT&CK.
 
+## Podgląd aplikacji
+
+### Dashboard SOC
+
+![Dashboard Mini SOC Lab](screenshots/dashboard.png)
+
+### Dziennik zdarzeń i wykryte zagrożenia
+
+![Dziennik zdarzeń Mini SOC Lab](screenshots/dashboard-alerts.png)
+
 ## Funkcjonalności
 
 - Analiza logów uwierzytelniania z plików CSV.
